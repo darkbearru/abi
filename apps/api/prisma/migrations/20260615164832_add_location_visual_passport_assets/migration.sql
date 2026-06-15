@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "AssetEntityType" ADD VALUE 'LOCATION_VERSION';

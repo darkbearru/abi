@@ -1,0 +1,32 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/shared"
+    },
+    {
+      "path": "./packages/ai-core"
+    },
+    {
+      "path": "./packages/storage"
+    },
+    {
+      "path": "./packages/prompts"
+    },
+    {
+      "path": "./packages/validation"
+    },
+    {
+      "path": "./packages/book-parser"
+    },
+    {
+      "path": "./apps/api"
+    },
+    {
+      "path": "./apps/web"
+    },
+    {
+      "path": "./apps/worker"
+    }
+  ]
+}

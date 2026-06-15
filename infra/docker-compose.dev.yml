@@ -1,0 +1,31 @@
+services:
+  api:
+    command: ["npm", "run", "dev", "-w", "@abi/api"]
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ..:/app
+      - api-node-modules:/app/node_modules
+      - ${LOCAL_STORAGE_PATH:-../storage}:${STORAGE_ROOT:-/app/storage}
+
+  worker:
+    command: ["npm", "run", "dev", "-w", "@abi/worker"]
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ..:/app
+      - worker-node-modules:/app/node_modules
+      - ${LOCAL_STORAGE_PATH:-../storage}:${STORAGE_ROOT:-/app/storage}
+
+  web:
+    command: ["npm", "run", "dev", "-w", "@abi/web", "--", "--port", "80"]
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ..:/app
+      - web-node-modules:/app/node_modules
+
+volumes:
+  api-node-modules:
+  worker-node-modules:
+  web-node-modules:

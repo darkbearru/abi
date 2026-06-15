@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@abi/shared": [
+        "packages/shared/src/index.ts"
+      ],
+      "@abi/ai-core": [
+        "packages/ai-core/src/index.ts"
+      ],
+      "@abi/storage": [
+        "packages/storage/src/index.ts"
+      ],
+      "@abi/prompts": [
+        "packages/prompts/src/index.ts"
+      ],
+      "@abi/validation": [
+        "packages/validation/src/index.ts"
+      ],
+      "@abi/book-parser": [
+        "packages/book-parser/src/index.ts"
+      ]
+    }
+  }
+}
