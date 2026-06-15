@@ -9,6 +9,7 @@ import { Module } from '@nestjs/common';
 import { CharacterExtractionModule } from './modules/character-extraction/character-extraction.module.js';
 import { LocationExtractionModule } from './modules/location-extraction/location-extraction.module.js';
 import { TimelineExtractionModule } from './modules/timeline-extraction/timeline-extraction.module.js';
+import { QueueModule } from './modules/queue/queue.module.js';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { TimelineExtractionModule } from './modules/timeline-extraction/timeline
     PromptsModule,
     StorageModule,
     ValidationModule,
+    QueueModule,
     CharacterExtractionModule,
     LocationExtractionModule,
     TimelineExtractionModule,

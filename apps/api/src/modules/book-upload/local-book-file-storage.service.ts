@@ -1,24 +1,28 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { extname } from 'node:path';
 
 import { Injectable } from '@nestjs/common';
+import { LocalStorageProvider } from '@abi/storage';
 
 import { getBookUploadConfig } from './book-upload.config.js';
 import type { StoredBookFile, UploadedBookFile } from './book-upload.types.js';
 
 @Injectable()
 export class LocalBookFileStorageService {
-  public async saveOriginal(file: UploadedBookFile, fileHash: string): Promise<StoredBookFile> {
-    const { storageRoot } = getBookUploadConfig();
-    const extension = extname(file.originalname).toLowerCase();
-    const relativePath = join('books', `${fileHash}${extension}`);
-    const absolutePath = join(storageRoot, relativePath);
+  private readonly storage = new LocalStorageProvider({
+    rootDir: getBookUploadConfig().storageRoot
+  });
 
-    await mkdir(join(storageRoot, 'books'), { recursive: true });
-    await writeFile(absolutePath, file.buffer);
+  public async saveOriginal(file: UploadedBookFile, fileHash: string): Promise<StoredBookFile> {
+    const extension = extname(file.originalname).toLowerCase();
+    const stored = await this.storage.save({
+      content: file.buffer,
+      directory: 'books',
+      filename: `${fileHash}${extension}`,
+      mimeType: file.mimetype
+    });
 
     return {
-      localPath: absolutePath
+      localPath: stored.localPath
     };
   }
 }

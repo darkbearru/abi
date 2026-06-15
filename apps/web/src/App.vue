@@ -1,9 +1,14 @@
 <template>
-  <main class="min-h-screen bg-white text-zinc-950">
-    <section class="mx-auto max-w-5xl px-6 py-8">
-      <h1 class="text-2xl font-semibold">
-        AI Book Illustrator
-      </h1>
-    </section>
-  </main>
+  <RouterView v-if="isPublicRoute" />
+  <AppShell v-else />
 </template>
+
+<script setup lang="ts">
+import { computed } from 'vue';
+import { RouterView, useRoute } from 'vue-router';
+
+import AppShell from './components/AppShell.vue';
+
+const route = useRoute();
+const isPublicRoute = computed(() => route.meta.public === true);
+</script>

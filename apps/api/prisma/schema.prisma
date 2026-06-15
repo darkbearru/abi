@@ -126,6 +126,7 @@ model User {
   id         String            @id @default(uuid()) @db.Uuid
   email      String            @unique
   name       String?
+  passwordHash String?
   projects   UserBookProject[]
   bookSeries BookSeries[]
   jobs       GenerationJob[]
@@ -154,6 +155,7 @@ model Book {
   @@index([fileHash])
   @@index([contentHash])
   @@index([fileHash, contentHash])
+  @@unique([contentHash])
 }
 
 model BookFile {
@@ -184,7 +186,7 @@ model BookAnalysis {
   chunks           BookChunk[]
   extractedFacts   ExtractedFact[]
   worldBible       WorldBible?
-  generationJob    GenerationJob?
+  generationJobs   GenerationJob[]
   aiLogs           AiProviderLog[]
   projectBookLinks UserBookProjectBook[]
   createdAt        DateTime              @default(now())
@@ -207,6 +209,7 @@ model BookSeries {
   updatedAt   DateTime          @updatedAt
 
   @@index([userId])
+  @@unique([userId, title])
 }
 
 model BookSeriesBook {
@@ -618,7 +621,7 @@ model GenerationJob {
   user           User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
   sceneId        String?             @db.Uuid
   scene          Scene?              @relation(fields: [sceneId], references: [id], onDelete: SetNull)
-  bookAnalysisId String?             @unique @db.Uuid
+  bookAnalysisId String?             @db.Uuid
   bookAnalysis   BookAnalysis?       @relation(fields: [bookAnalysisId], references: [id], onDelete: SetNull)
   visualStyleId  String?             @db.Uuid
   visualStyle    VisualStyle?        @relation(fields: [visualStyleId], references: [id], onDelete: SetNull)

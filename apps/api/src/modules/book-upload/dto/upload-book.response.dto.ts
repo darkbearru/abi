@@ -4,6 +4,9 @@ export class UploadBookResponseDto {
   @ApiProperty()
   public readonly bookId!: string;
 
+  @ApiProperty()
+  public readonly projectId!: string;
+
   @ApiPropertyOptional()
   public readonly bookAnalysisId?: string;
 

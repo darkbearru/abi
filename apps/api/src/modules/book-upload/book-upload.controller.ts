@@ -15,6 +15,8 @@ import {
   ApiTags
 } from '@nestjs/swagger';
 
+import { CurrentUser } from '../../auth/current-user.decorator.js';
+import type { AuthenticatedUser } from '../../auth/auth.types.js';
 import { getBookUploadConfig } from './book-upload.config.js';
 import { BookFileValidator } from './book-file.validator.js';
 import { BookUploadService } from './book-upload.service.js';
@@ -72,7 +74,8 @@ export class BookUploadController {
   @ApiCreatedResponse({ type: UploadBookResponseDto })
   public uploadBook(
     @UploadedFile() file: MulterMemoryFile | undefined,
-    @Body() dto: UploadBookDto
+    @Body() dto: UploadBookDto,
+    @CurrentUser() user: AuthenticatedUser
   ): Promise<UploadBookResponseDto> {
     if (!file) {
       throw new BadRequestException('Book file is required.');
@@ -87,6 +90,6 @@ export class BookUploadController {
 
     this.bookFileValidator.validate(uploadedFile);
 
-    return this.bookUploadService.upload(uploadedFile, dto);
+    return this.bookUploadService.upload(uploadedFile, dto, user.id);
   }
 }

@@ -1,6 +1,18 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  UseGuards
+} from '@nestjs/common';
 import { ApiNoContentResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
+import { AdminGuard } from '../../auth/admin.guard.js';
 import {
   AbstractStyleDto,
   AbstractedVisualStyleDto,
@@ -29,11 +41,12 @@ export class VisualStyleController {
   @Get(':id')
   @ApiOperation({ summary: 'Get a visual style.' })
   @ApiOkResponse({ type: VisualStyleResponseDto })
-  get(@Param('id') id: string): Promise<VisualStyleResponseDto> {
+  get(@Param('id', new ParseUUIDPipe()) id: string): Promise<VisualStyleResponseDto> {
     return this.styles.get(id);
   }
 
   @Post()
+  @UseGuards(AdminGuard)
   @ApiOperation({ summary: 'Create a visual style.' })
   @ApiOkResponse({ type: VisualStyleResponseDto })
   create(@Body() dto: CreateVisualStyleDto): Promise<VisualStyleResponseDto> {
@@ -41,20 +54,22 @@ export class VisualStyleController {
   }
 
   @Patch(':id')
+  @UseGuards(AdminGuard)
   @ApiOperation({ summary: 'Update a visual style.' })
   @ApiOkResponse({ type: VisualStyleResponseDto })
   update(
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateVisualStyleDto
   ): Promise<VisualStyleResponseDto> {
     return this.styles.update(id, dto);
   }
 
   @Delete(':id')
+  @UseGuards(AdminGuard)
   @HttpCode(204)
   @ApiOperation({ summary: 'Delete a visual style.' })
   @ApiNoContentResponse()
-  delete(@Param('id') id: string): Promise<void> {
+  delete(@Param('id', new ParseUUIDPipe()) id: string): Promise<void> {
     return this.styles.delete(id);
   }
 

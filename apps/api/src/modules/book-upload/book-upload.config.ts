@@ -1,6 +1,6 @@
 import { DEFAULT_MAX_BOOK_UPLOAD_BYTES } from './book-upload.constants.js';
 
-export interface BookUploadConfig {
+interface BookUploadConfig {
   readonly maxFileSizeBytes: number;
   readonly storageRoot: string;
 }

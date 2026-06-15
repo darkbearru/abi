@@ -10,9 +10,11 @@ export interface StoredBookFile {
 }
 
 export interface CreateBookWithAnalysisInput {
+  readonly userId: string;
   readonly title: string;
   readonly author?: string;
   readonly language?: string;
+  readonly seriesTitle?: string;
   readonly fileHash: string;
   readonly contentHash: string;
   readonly file: {
@@ -26,4 +28,6 @@ export interface CreateBookWithAnalysisInput {
 export interface BookAnalysisReference {
   readonly bookId: string;
   readonly bookAnalysisId: string;
+  readonly projectId?: string;
+  readonly userId?: string;
 }

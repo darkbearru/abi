@@ -5,6 +5,7 @@ import { ValidationResultDto } from '../../consistency-validation/dto/consistenc
 
 export enum SceneGenerationStatusDto {
   GENERATED = 'generated',
+  QUEUED = 'queued',
   NEEDS_RESOLUTION = 'needs_resolution',
   MISSING_REFERENCES = 'missing_references'
 }

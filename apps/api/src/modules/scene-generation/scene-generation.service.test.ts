@@ -1,9 +1,7 @@
-import { AiProviderRegistry, MockAiProvider } from '@abi/ai-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { ConsistencyValidationService } from '../consistency-validation/consistency-validation.service.js';
-import { RecommendedActionDto } from '../consistency-validation/dto/consistency-validation.dto.js';
 import type { GraphQueryService } from '../knowledge-graph/graph-query.service.js';
+import type { QueueService } from '../queue/queue.service.js';
 import type { PrismaService } from '../../prisma/prisma.service.js';
 import { SceneGenerationStatusDto } from './dto/scene-generation.dto.js';
 import type {
@@ -44,14 +42,13 @@ describe('SceneGenerationService', () => {
       resolver,
       graph,
       new ScenePromptBuilderService(),
-      new AiProviderRegistry([], []),
-      { putObject: vi.fn() }
+      { createJob: vi.fn() } as unknown as QueueService
     );
 
     const response = await service.generate('project-1', {
       text: 'John talks near the fountain.',
       styleId: 'style-1'
-    });
+    }, 'user-1');
 
     expect(response.status).toBe(SceneGenerationStatusDto.MISSING_REFERENCES);
     expect(response.missingReferences).toHaveLength(2);
@@ -62,7 +59,7 @@ describe('SceneGenerationService', () => {
     expect(sceneCreate).not.toHaveBeenCalled();
   });
 
-  it('creates scene and generated asset when references are approved', async () => {
+  it('creates scene and queues image generation when references are approved', async () => {
     vi.stubEnv('SCENE_IMAGE_PROVIDER', 'mock-image');
 
     const resolution = createResolution();
@@ -84,30 +81,6 @@ describe('SceneGenerationService', () => {
       createdAt: now,
       updatedAt: now
     });
-    const generationJobCreate = vi.fn().mockResolvedValue({ id: 'job-1' });
-    const assetCreate = vi.fn().mockImplementation(({ data }: { readonly data: Record<string, unknown> }) =>
-      Promise.resolve({
-        id: 'scene-asset-1',
-        projectId: data.projectId,
-        sceneId: data.sceneId,
-        jobId: data.jobId,
-        type: data.type,
-        approvalStatus: data.approvalStatus,
-        localPath: data.localPath,
-        mimeType: data.mimeType,
-        width: null,
-        height: null,
-        prompt: data.prompt,
-        seed: data.seed,
-        model: data.model,
-        provider: data.provider,
-        entityType: data.entityType,
-        entityId: data.entityId,
-        metadata: data.metadata,
-        createdAt: now,
-        updatedAt: now
-      })
-    );
     const prisma = {
       visualStyle: {
         findUnique: vi.fn().mockResolvedValue(createVisualStyle())
@@ -116,72 +89,50 @@ describe('SceneGenerationService', () => {
         findMany: vi.fn().mockResolvedValue([
           createReferenceAsset('asset-character-1', 'CHARACTER_VERSION', 'character-version-1'),
           createReferenceAsset('asset-location-1', 'LOCATION_VERSION', 'location-version-1')
-        ]),
-        create: assetCreate
+        ])
       },
       scene: {
         aggregate: vi.fn().mockResolvedValue({ _max: { orderIndex: null } }),
-        create: sceneCreate,
-        update: vi.fn().mockResolvedValue({})
-      },
-      generationJob: {
-        create: generationJobCreate,
-        update: vi.fn().mockResolvedValue({})
+        create: sceneCreate
       }
     } as unknown as PrismaService;
     const graph = {
       findCharacterContext: vi.fn().mockResolvedValue({ nodes: [], relationships: [] }),
       findLocationContext: vi.fn().mockResolvedValue({ nodes: [], relationships: [] })
     } as unknown as GraphQueryService;
-    const provider = new MockAiProvider({
-      id: 'mock-image',
-      imageResponses: [
-        {
-          providerId: 'mock-image',
-          model: 'mock-model',
-          images: [
-            {
-              b64Json: Buffer.from('fake-image').toString('base64'),
-              mimeType: 'image/png'
-            }
-          ]
-        }
-      ]
-    });
-    const putObject = vi.fn().mockResolvedValue({
-      key: 'scenes/project-1/scene-1/image.png',
-      contentType: 'image/png'
-    });
-    const validateAsset = vi.fn().mockResolvedValue({
-      passed: true,
-      score: 0.87,
-      checks: [],
-      recommendedAction: RecommendedActionDto.APPROVE
+    const createJob = vi.fn().mockResolvedValue({
+      id: 'job-1',
+      queueName: 'image-generation',
+      name: 'generate-scene',
+      status: 'QUEUED',
+      progress: 0
     });
     const service = new SceneGenerationService(
       prisma,
       resolver,
       graph,
       new ScenePromptBuilderService(),
-      new AiProviderRegistry([], [provider]),
-      { putObject },
-      { validateAsset } as unknown as ConsistencyValidationService
+      { createJob } as unknown as QueueService
     );
 
     const response = await service.generate('project-1', {
       text: 'John talks near the fountain.',
       styleId: 'style-1',
       aspectRatio: '16:9'
-    });
+    }, 'user-1');
 
-    expect(response.status).toBe(SceneGenerationStatusDto.GENERATED);
+    expect(response.status).toBe(SceneGenerationStatusDto.QUEUED);
     expect(response.sceneId).toBe('scene-1');
-    expect(response.assetId).toBe('scene-asset-1');
-    expect(generationJobCreate).toHaveBeenCalled();
-    expect(assetCreate).toHaveBeenCalled();
-    expect(putObject).toHaveBeenCalled();
-    expect(validateAsset).toHaveBeenCalledWith('scene-asset-1');
-    expect(response.validationResult?.recommendedAction).toBe(RecommendedActionDto.APPROVE);
+    expect(response.generationJobId).toBe('job-1');
+    expect(createJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queueName: 'image-generation',
+        name: 'generate-scene',
+        projectId: 'project-1',
+        userId: 'user-1',
+        sceneId: 'scene-1'
+      })
+    );
   });
 });
 

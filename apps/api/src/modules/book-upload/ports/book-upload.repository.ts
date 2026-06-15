@@ -11,4 +11,12 @@ export abstract class BookUploadRepository {
   public abstract createBookWithPendingAnalysis(
     input: CreateBookWithAnalysisInput
   ): Promise<BookAnalysisReference>;
+
+  public abstract createProjectForAnalysis(input: {
+    readonly userId: string;
+    readonly bookId: string;
+    readonly bookAnalysisId: string;
+    readonly title: string;
+    readonly seriesTitle?: string;
+  }): Promise<{ readonly projectId: string }>;
 }

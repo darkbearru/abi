@@ -1,12 +1,8 @@
-import { randomInt } from 'node:crypto';
-
-import { AiProviderRegistry } from '@abi/ai-core';
-import { StorageService } from '@abi/storage';
-import { Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Asset, Prisma, Scene } from '@prisma/client';
 
-import { ConsistencyValidationService } from '../consistency-validation/consistency-validation.service.js';
 import { GraphQueryService } from '../knowledge-graph/graph-query.service.js';
+import { QueueService } from '../queue/queue.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import {
   SceneGenerationStatusDto,
@@ -47,16 +43,15 @@ export class SceneGenerationService {
     private readonly graph: GraphQueryService,
     @Inject(ScenePromptBuilderService)
     private readonly prompts: ScenePromptBuilderService,
-    @Inject(AiProviderRegistry)
-    private readonly aiProviders: AiProviderRegistry,
-    @Inject(StorageService)
-    private readonly storage: StorageService,
-    @Optional()
-    @Inject(ConsistencyValidationService)
-    private readonly consistencyValidation?: ConsistencyValidationService
+    @Inject(QueueService)
+    private readonly queue: QueueService
   ) {}
 
-  async generate(projectId: string, dto: GenerateSceneDto): Promise<SceneGenerationResponseDto> {
+  async generate(
+    projectId: string,
+    dto: GenerateSceneDto,
+    userId: string
+  ): Promise<SceneGenerationResponseDto> {
     const resolution = await this.resolver.resolve(projectId, dto.text, dto.timelineHint);
 
     if (resolution.candidates.length > 0 || resolution.createSuggestions.length > 0) {
@@ -101,131 +96,46 @@ export class SceneGenerationService {
     const providerId = process.env.SCENE_IMAGE_PROVIDER ?? 'openai';
     const model = process.env.SCENE_IMAGE_MODEL;
     const size = process.env.SCENE_IMAGE_SIZE ?? '1024x1024';
-    const job = await this.prisma.generationJob.create({
-      data: {
-        projectId,
-        sceneId: scene.id,
-        visualStyleId: visualStyle.id,
-        status: 'PROCESSING',
-        progress: 0,
-        input: toInputJsonObject({
-          type: 'scene_generation',
-          text: dto.text,
-          styleId: dto.styleId,
-          ...(dto.timelineHint === undefined ? {} : { timelineHint: dto.timelineHint }),
-          aspectRatio,
-          providerId,
-          ...(model === undefined ? {} : { model }),
-          size,
-          characterIds: resolution.characters.map((character) => character.id),
-          characterVersionIds: resolution.characters.map((character) => character.version.id),
-          locationIds: resolution.locations.map((location) => location.id),
-          locationVersionIds: resolution.locations.map((location) => location.version.id),
-          objectIds: resolution.objects.map((object) => object.id),
-          referenceAssetIds: referenceResult.assets.map((asset) => asset.id)
-        })
-      },
-      select: { id: true }
-    });
 
-    try {
-      const response = await this.aiProviders.generateImage(providerId, {
+    const job = await this.queue.createJob({
+      queueName: 'image-generation',
+      name: 'generate-scene',
+      projectId,
+      userId,
+      sceneId: scene.id,
+      visualStyleId: visualStyle.id,
+      payload: {
+        sceneId: scene.id,
+        projectId,
+        userId,
         prompt: builtPrompt.prompt,
+        visualStyleId: visualStyle.id,
+        text: dto.text,
+        ...(dto.timelineHint === undefined ? {} : { timelineHint: dto.timelineHint }),
+        aspectRatio,
+        providerId,
         ...(model === undefined ? {} : { model }),
         size,
-        count: 1,
-        metadata: {
-          generationJobId: job.id,
-          purpose: 'scene-generation',
-          tags: ['scene', projectId]
-        }
-      });
-      const image = response.images[0];
-
-      if (!image) {
-        throw new Error(`Image provider "${providerId}" returned no images.`);
+        negativePrompt: builtPrompt.negativePrompt,
+        characterIds: resolution.characters.map((character) => character.id),
+        characterVersionIds: resolution.characters.map((character) => character.version.id),
+        locationIds: resolution.locations.map((location) => location.id),
+        locationVersionIds: resolution.locations.map((location) => location.version.id),
+        objectIds: resolution.objects.map((object) => object.id),
+        referenceAssetIds: referenceResult.assets.map((asset) => asset.id)
       }
+    });
 
-      const seed = createSeed(scene.id);
-      const imageBytes = await readGeneratedImageBytes(image);
-      const mimeType = image.mimeType ?? 'image/png';
-      const stored = await this.storage.putObject({
-        key: buildStorageKey(projectId, scene.id, seed, mimeType),
-        body: imageBytes,
-        contentType: mimeType
-      });
-      const asset = await this.prisma.asset.create({
-        data: {
-          projectId,
-          sceneId: scene.id,
-          jobId: job.id,
-          type: 'GENERATED',
-          approvalStatus: 'DRAFT',
-          localPath: stored.key,
-          mimeType,
-          prompt: builtPrompt.prompt,
-          seed,
-          ...(response.model === undefined ? {} : { model: response.model }),
-          provider: response.providerId,
-          entityType: 'SCENE',
-          entityId: scene.id,
-          metadata: toInputJsonObject({
-            negativePrompt: builtPrompt.negativePrompt,
-            aspectRatio,
-            styleId: visualStyle.id,
-            referenceAssetIds: referenceResult.assets.map((referenceAsset) => referenceAsset.id)
-          })
-        }
-      });
-      const validationResult = await this.consistencyValidation?.validateAsset(asset.id);
-
-      await Promise.all([
-        this.prisma.scene.update({
-          where: { id: scene.id },
-          data: { status: 'COMPLETED' }
-        }),
-        this.prisma.generationJob.update({
-          where: { id: job.id },
-          data: {
-            status: 'COMPLETED',
-            progress: 100,
-            output: toInputJsonObject({ assetId: asset.id, localPath: asset.localPath })
-          }
-        })
-      ]);
-
-      return {
-        status: SceneGenerationStatusDto.GENERATED,
-        sceneId: scene.id,
-        generationJobId: job.id,
-        assetId: asset.id,
-        localPath: asset.localPath,
-        prompt: builtPrompt.prompt,
-        ...(validationResult === undefined ? {} : { validationResult }),
-        candidates: [],
-        createSuggestions: [],
-        missingReferences: [],
-        referenceAssets: referenceResult.assets.map(toReferenceAssetDto)
-      };
-    } catch (error) {
-      await Promise.all([
-        this.prisma.scene.update({
-          where: { id: scene.id },
-          data: { status: 'FAILED' }
-        }),
-        this.prisma.generationJob.update({
-          where: { id: job.id },
-          data: {
-            status: 'FAILED',
-            error: toInputJsonObject({
-              message: error instanceof Error ? error.message : 'Unknown scene generation error.'
-            })
-          }
-        })
-      ]);
-
-      throw error;
-    }
+    return {
+      status: SceneGenerationStatusDto.QUEUED,
+      sceneId: scene.id,
+      generationJobId: job.id,
+      prompt: builtPrompt.prompt,
+      candidates: [],
+      createSuggestions: [],
+      missingReferences: [],
+      referenceAssets: referenceResult.assets.map(toReferenceAssetDto)
+    };
   }
 
   private async getVisualStyle(id: string): Promise<Prisma.VisualStyleGetPayload<object>> {
@@ -359,48 +269,6 @@ export class SceneGenerationService {
   }
 }
 
-async function readGeneratedImageBytes(image: {
-  readonly b64Json?: string;
-  readonly url?: string;
-}): Promise<Uint8Array> {
-  if (image.b64Json) {
-    return Uint8Array.from(Buffer.from(stripDataUrlPrefix(image.b64Json), 'base64'));
-  }
-
-  if (image.url) {
-    const response = await fetch(image.url);
-
-    if (!response.ok) {
-      throw new Error(`Unable to fetch generated image URL: ${String(response.status)}.`);
-    }
-
-    return new Uint8Array(await response.arrayBuffer());
-  }
-
-  throw new Error('Generated image did not contain b64Json or url.');
-}
-
-function stripDataUrlPrefix(value: string): string {
-  return value.replace(/^data:[^;]+;base64,/, '');
-}
-
-function createSeed(sceneId: string): number {
-  const base = Array.from(sceneId).reduce((sum, char) => sum + char.charCodeAt(0), 0);
-
-  return (base + randomInt(1, 1_000_000_000)) % 1_000_000_000;
-}
-
-function buildStorageKey(
-  projectId: string,
-  sceneId: string,
-  seed: number,
-  mimeType: string
-): string {
-  const extension = mimeType === 'image/jpeg' ? 'jpg' : 'png';
-
-  return ['scenes', projectId, sceneId, `${String(seed)}.${extension}`].join('/');
-}
-
 function createSceneTitle(text: string): string {
   const normalized = text.replace(/\s+/g, ' ').trim();
 
@@ -459,33 +327,4 @@ function uniqueBy<T>(values: readonly T[], getKey: (value: T) => string): readon
   }
 
   return result;
-}
-
-function toInputJsonObject(value: Record<string, unknown>): Prisma.InputJsonObject {
-  return Object.fromEntries(
-    Object.entries(value).filter((entry): entry is [string, Prisma.InputJsonValue] =>
-      isInputJsonValue(entry[1])
-    )
-  );
-}
-
-function isInputJsonValue(value: unknown): value is Prisma.InputJsonValue {
-  if (
-    typeof value === 'string' ||
-    typeof value === 'number' ||
-    typeof value === 'boolean' ||
-    value === null
-  ) {
-    return true;
-  }
-
-  if (Array.isArray(value)) {
-    return value.every(isInputJsonValue);
-  }
-
-  if (value && typeof value === 'object') {
-    return Object.values(value).every(isInputJsonValue);
-  }
-
-  return false;
 }

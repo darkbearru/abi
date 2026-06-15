@@ -19,6 +19,14 @@ export class UploadBookDto {
   public readonly author?: string;
 
   @ApiPropertyOptional({
+    description: 'Optional book series title. Creates or reuses a user-owned series.'
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  public readonly seriesTitle?: string;
+
+  @ApiPropertyOptional({
     description: 'Optional ISO-like language hint, for example "en" or "ru".'
   })
   @IsOptional()

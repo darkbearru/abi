@@ -21,6 +21,8 @@ services:
     command: ["npm", "run", "dev", "-w", "@abi/web", "--", "--port", "80"]
     environment:
       NODE_ENV: development
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1/ || exit 1"]
     volumes:
       - ..:/app
       - web-node-modules:/app/node_modules

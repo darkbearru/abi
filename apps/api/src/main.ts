@@ -22,6 +22,7 @@ async function bootstrap(): Promise<void> {
     .setTitle('AI Book Illustrator API')
     .setDescription('Backend API for book ingestion and illustration pipeline orchestration.')
     .setVersion('0.1.0')
+    .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('docs', app, document);
