@@ -1,0 +1,662 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BookFileKind {
+  ORIGINAL
+  EXTRACTED_TEXT
+  DERIVED
+}
+
+enum AnalysisStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum RelationshipType {
+  ALLY
+  ENEMY
+  FAMILY
+  ROMANTIC
+  MENTOR
+  RIVAL
+  SERVES
+  KNOWS
+  OTHER
+}
+
+enum SceneStatus {
+  DRAFT
+  READY
+  GENERATING
+  COMPLETED
+  FAILED
+}
+
+enum AssetType {
+  SOURCE
+  REFERENCE
+  GENERATED
+  THUMBNAIL
+}
+
+enum AssetApprovalStatus {
+  DRAFT
+  APPROVED
+  REJECTED
+}
+
+enum AssetEntityType {
+  BOOK
+  WORLD_BIBLE
+  CHARACTER
+  CHARACTER_VERSION
+  LOCATION
+  LOCATION_VERSION
+  WORLD_OBJECT
+  TIMELINE_EVENT
+  SCENE
+  VISUAL_STYLE
+  GENERATION_JOB
+}
+
+enum GenerationJobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum AiProviderLogStatus {
+  SUCCESS
+  ERROR
+}
+
+enum ExtractedFactType {
+  CHARACTER_MENTION
+  CHARACTER_ALIAS
+  CHARACTER_APPEARANCE
+  CHARACTER_AGE
+  CHARACTER_PERSONALITY
+  CHARACTER_SPEECH_MANNER
+  CHARACTER_RELATIONSHIP
+  CHARACTER_PLOT_CHANGE
+  CHARACTER_CANDIDATE
+  LOCATION_MENTION
+  LOCATION_ALIAS
+  LOCATION_HIERARCHY
+  LOCATION_ATMOSPHERE
+  LOCATION_ARCHITECTURE
+  LOCATION_ERA
+  LOCATION_SOCIAL_CONTEXT
+  LOCATION_LIGHTING
+  LOCATION_COLOR
+  LOCATION_RECURRING_OBJECT
+  LOCATION_CHANGE
+  LOCATION_CANDIDATE
+  TIMELINE_EVENT
+  TIMELINE_MARKER
+  TIMELINE_CHARACTER_PERIOD
+  TIMELINE_CANDIDATE
+}
+
+enum EntityConflictType {
+  CHARACTER_POSSIBLE_DUPLICATE
+  CHARACTER_ATTRIBUTE_CONFLICT
+  LOCATION_POSSIBLE_DUPLICATE
+  LOCATION_ATTRIBUTE_CONFLICT
+  LOCATION_PARENT_CONFLICT
+}
+
+enum EntityConflictStatus {
+  OPEN
+  RESOLVED
+  IGNORED
+}
+
+model User {
+  id         String            @id @default(uuid()) @db.Uuid
+  email      String            @unique
+  name       String?
+  projects   UserBookProject[]
+  bookSeries BookSeries[]
+  jobs       GenerationJob[]
+  aiLogs     AiProviderLog[]
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+}
+
+model Book {
+  id             String                @id @default(uuid()) @db.Uuid
+  title          String
+  author         String?
+  language       String?
+  fileHash       String
+  contentHash    String
+  files          BookFile[]
+  analyses       BookAnalysis[]
+  projects       UserBookProject[]
+  seriesLinks    BookSeriesBook[]
+  projectLinks   UserBookProjectBook[]
+  chunks         BookChunk[]
+  extractedFacts ExtractedFact[]
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@index([fileHash])
+  @@index([contentHash])
+  @@index([fileHash, contentHash])
+}
+
+model BookFile {
+  id        String       @id @default(uuid()) @db.Uuid
+  bookId    String       @db.Uuid
+  book      Book         @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  kind      BookFileKind @default(ORIGINAL)
+  localPath String
+  mimeType  String
+  sizeBytes BigInt?
+  fileHash  String
+  createdAt DateTime     @default(now())
+
+  @@index([bookId])
+  @@index([fileHash])
+}
+
+model BookAnalysis {
+  id               String                @id @default(uuid()) @db.Uuid
+  bookId           String                @db.Uuid
+  book             Book                  @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  status           AnalysisStatus        @default(PENDING)
+  contentHash      String
+  model            String?
+  provider         String?
+  metadata         Json?
+  projects         UserBookProject[]
+  chunks           BookChunk[]
+  extractedFacts   ExtractedFact[]
+  worldBible       WorldBible?
+  generationJob    GenerationJob?
+  aiLogs           AiProviderLog[]
+  projectBookLinks UserBookProjectBook[]
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@index([bookId])
+  @@index([contentHash])
+}
+
+model BookSeries {
+  id          String            @id @default(uuid()) @db.Uuid
+  userId      String?           @db.Uuid
+  user        User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  title       String
+  description String?
+  books       BookSeriesBook[]
+  projects    UserBookProject[]
+  worldBible  WorldBible?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([userId])
+}
+
+model BookSeriesBook {
+  id         String     @id @default(uuid()) @db.Uuid
+  seriesId   String     @db.Uuid
+  series     BookSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  bookId     String     @db.Uuid
+  book       Book       @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  orderIndex Int
+  createdAt  DateTime   @default(now())
+
+  @@unique([seriesId, bookId])
+  @@unique([seriesId, orderIndex])
+  @@index([bookId])
+}
+
+model UserBookProject {
+  id             String                @id @default(uuid()) @db.Uuid
+  userId         String                @db.Uuid
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookId         String                @db.Uuid
+  book           Book                  @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  bookAnalysisId String?               @db.Uuid
+  bookAnalysis   BookAnalysis?         @relation(fields: [bookAnalysisId], references: [id], onDelete: SetNull)
+  seriesId       String?               @db.Uuid
+  series         BookSeries?           @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  name           String
+  books          UserBookProjectBook[]
+  worldBible     WorldBible?
+  scenes         Scene[]
+  jobs           GenerationJob[]
+  assets         Asset[]
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@index([userId])
+  @@index([bookId])
+  @@index([bookAnalysisId])
+  @@index([seriesId])
+}
+
+model UserBookProjectBook {
+  id             String          @id @default(uuid()) @db.Uuid
+  projectId      String          @db.Uuid
+  project        UserBookProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  bookId         String          @db.Uuid
+  book           Book            @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  bookAnalysisId String?         @db.Uuid
+  bookAnalysis   BookAnalysis?   @relation(fields: [bookAnalysisId], references: [id], onDelete: SetNull)
+  orderIndex     Int
+  createdAt      DateTime        @default(now())
+
+  @@unique([projectId, bookId])
+  @@unique([projectId, orderIndex])
+  @@index([bookId])
+  @@index([bookAnalysisId])
+}
+
+model BookChunk {
+  id             String          @id @default(uuid()) @db.Uuid
+  bookId         String          @db.Uuid
+  book           Book            @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  bookAnalysisId String?         @db.Uuid
+  bookAnalysis   BookAnalysis?   @relation(fields: [bookAnalysisId], references: [id], onDelete: SetNull)
+  chapterIndex   Int
+  text           String
+  startOffset    Int
+  endOffset      Int
+  tokenEstimate  Int
+  orderIndex     Int
+  embeddingId    String?
+  metadata       Json?
+  extractedFacts ExtractedFact[]
+  createdAt      DateTime        @default(now())
+
+  @@unique([bookId, orderIndex])
+  @@index([bookId])
+  @@index([bookAnalysisId])
+  @@index([bookId, chapterIndex])
+}
+
+model ExtractedFact {
+  id             String            @id @default(uuid()) @db.Uuid
+  bookId         String            @db.Uuid
+  book           Book              @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  bookAnalysisId String            @db.Uuid
+  bookAnalysis   BookAnalysis      @relation(fields: [bookAnalysisId], references: [id], onDelete: Cascade)
+  type           ExtractedFactType
+  entityName     String
+  value          Json
+  sourceChunkId  String            @db.Uuid
+  sourceChunk    BookChunk         @relation(fields: [sourceChunkId], references: [id], onDelete: Cascade)
+  confidence     Float
+  quote          String?
+  chapterIndex   Int
+  timelineHint   String?
+  createdAt      DateTime          @default(now())
+
+  @@index([bookId])
+  @@index([bookAnalysisId])
+  @@index([sourceChunkId])
+  @@index([type])
+  @@index([entityName])
+}
+
+model WorldBible {
+  id             String           @id @default(uuid()) @db.Uuid
+  bookAnalysisId String?          @unique @db.Uuid
+  bookAnalysis   BookAnalysis?    @relation(fields: [bookAnalysisId], references: [id], onDelete: Cascade)
+  seriesId       String?          @unique @db.Uuid
+  series         BookSeries?      @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  projectId      String?          @unique @db.Uuid
+  project        UserBookProject? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  summary        String?
+  rules          Json?
+  characters     Character[]
+  locations      Location[]
+  objects        WorldObject[]
+  timelineEvents TimelineEvent[]
+  conflicts      EntityConflict[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([bookAnalysisId])
+  @@index([seriesId])
+  @@index([projectId])
+}
+
+model Character {
+  id             String                  @id @default(uuid()) @db.Uuid
+  worldBibleId   String                  @db.Uuid
+  worldBible     WorldBible              @relation(fields: [worldBibleId], references: [id], onDelete: Cascade)
+  canonicalName  String
+  aliases        CharacterAlias[]
+  versions       CharacterVersion[]
+  outgoing       CharacterRelationship[] @relation("CharacterRelationshipSource")
+  incoming       CharacterRelationship[] @relation("CharacterRelationshipTarget")
+  conflicts      EntityConflict[]
+  scenes         Scene[]
+  timelineEvents TimelineEvent[]
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  @@index([worldBibleId])
+}
+
+model CharacterAlias {
+  id          String    @id @default(uuid()) @db.Uuid
+  characterId String    @db.Uuid
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  alias       String
+  createdAt   DateTime  @default(now())
+
+  @@unique([characterId, alias])
+  @@index([characterId])
+}
+
+model CharacterVersion {
+  id                 String                          @id @default(uuid()) @db.Uuid
+  characterId        String                          @db.Uuid
+  character          Character                       @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  version            Int
+  age                String?
+  timelineRange      Json?
+  appearance         Json
+  personality        Json?
+  speechManner       String?
+  clothing           Json?
+  visualPrompt       String?
+  negativePrompt     String?
+  confidenceScore    Float                           @default(0)
+  sourceFactIds      String[]
+  timelineEventLinks TimelineEventCharacterVersion[]
+  createdAt          DateTime                        @default(now())
+
+  @@unique([characterId, version])
+  @@index([characterId])
+}
+
+model EntityConflict {
+  id            String               @id @default(uuid()) @db.Uuid
+  worldBibleId  String               @db.Uuid
+  worldBible    WorldBible           @relation(fields: [worldBibleId], references: [id], onDelete: Cascade)
+  characterId   String?              @db.Uuid
+  character     Character?           @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  type          EntityConflictType
+  status        EntityConflictStatus @default(OPEN)
+  summary       String
+  options       Json
+  sourceFactIds String[]
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@index([worldBibleId])
+  @@index([characterId])
+  @@index([type])
+  @@index([status])
+}
+
+model CharacterRelationship {
+  id                String           @id @default(uuid()) @db.Uuid
+  sourceCharacterId String           @db.Uuid
+  sourceCharacter   Character        @relation("CharacterRelationshipSource", fields: [sourceCharacterId], references: [id], onDelete: Cascade)
+  targetCharacterId String           @db.Uuid
+  targetCharacter   Character        @relation("CharacterRelationshipTarget", fields: [targetCharacterId], references: [id], onDelete: Cascade)
+  type              RelationshipType
+  description       String?
+  timelineRange     Json?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([sourceCharacterId])
+  @@index([targetCharacterId])
+}
+
+model Location {
+  id             String            @id @default(uuid()) @db.Uuid
+  worldBibleId   String            @db.Uuid
+  worldBible     WorldBible        @relation(fields: [worldBibleId], references: [id], onDelete: Cascade)
+  name           String
+  parentId       String?           @db.Uuid
+  parent         Location?         @relation("LocationHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children       Location[]        @relation("LocationHierarchy")
+  aliases        LocationAlias[]
+  versions       LocationVersion[]
+  scenes         Scene[]
+  timelineEvents TimelineEvent[]
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([worldBibleId])
+  @@index([parentId])
+}
+
+model LocationAlias {
+  id         String   @id @default(uuid()) @db.Uuid
+  locationId String   @db.Uuid
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  alias      String
+  createdAt  DateTime @default(now())
+
+  @@unique([locationId, alias])
+  @@index([locationId])
+}
+
+model LocationVersion {
+  id                String   @id @default(uuid()) @db.Uuid
+  locationId        String   @db.Uuid
+  location          Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  version           Int
+  description       String
+  atmosphere        Json?
+  palette           Json?
+  era               String?
+  socialContext     Json?
+  lightingRules     Json?
+  architectureRules Json?
+  recurringObjects  Json?
+  referenceAssetIds String[]
+  confidenceScore   Float    @default(0)
+  sourceFactIds     String[]
+  createdAt         DateTime @default(now())
+
+  @@unique([locationId, version])
+  @@index([locationId])
+}
+
+model WorldObject {
+  id           String     @id @default(uuid()) @db.Uuid
+  worldBibleId String     @db.Uuid
+  worldBible   WorldBible @relation(fields: [worldBibleId], references: [id], onDelete: Cascade)
+  name         String
+  description  String?
+  visualPrompt String?
+  metadata     Json?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([worldBibleId])
+}
+
+model TimelineEvent {
+  id                   String                          @id @default(uuid()) @db.Uuid
+  worldBibleId         String                          @db.Uuid
+  worldBible           WorldBible                      @relation(fields: [worldBibleId], references: [id], onDelete: Cascade)
+  title                String
+  description          String?
+  chapterIndex         Int                             @default(0)
+  absoluteDate         DateTime?
+  relativeOrder        Int                             @default(0)
+  orderIndex           Int
+  timelineRange        Json?
+  relativeMarkers      Json?
+  involvedCharacterIds String[]
+  involvedLocationIds  String[]
+  sourceChunkIds       String[]
+  confidence           Float                           @default(0)
+  characterId          String?                         @db.Uuid
+  character            Character?                      @relation(fields: [characterId], references: [id], onDelete: SetNull)
+  locationId           String?                         @db.Uuid
+  location             Location?                       @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  characterVersions    TimelineEventCharacterVersion[]
+  createdAt            DateTime                        @default(now())
+  updatedAt            DateTime                        @updatedAt
+
+  @@index([worldBibleId])
+  @@index([characterId])
+  @@index([locationId])
+  @@index([chapterIndex])
+  @@index([relativeOrder])
+}
+
+model TimelineEventCharacterVersion {
+  id                 String           @id @default(uuid()) @db.Uuid
+  timelineEventId    String           @db.Uuid
+  timelineEvent      TimelineEvent    @relation(fields: [timelineEventId], references: [id], onDelete: Cascade)
+  characterVersionId String           @db.Uuid
+  characterVersion   CharacterVersion @relation(fields: [characterVersionId], references: [id], onDelete: Cascade)
+  createdAt          DateTime         @default(now())
+
+  @@unique([timelineEventId, characterVersionId])
+  @@index([timelineEventId])
+  @@index([characterVersionId])
+}
+
+model Scene {
+  id            String          @id @default(uuid()) @db.Uuid
+  projectId     String          @db.Uuid
+  project       UserBookProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title         String
+  description   String?
+  status        SceneStatus     @default(DRAFT)
+  orderIndex    Int
+  prompt        String?
+  characterId   String?         @db.Uuid
+  character     Character?      @relation(fields: [characterId], references: [id], onDelete: SetNull)
+  locationId    String?         @db.Uuid
+  location      Location?       @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  visualStyleId String?         @db.Uuid
+  visualStyle   VisualStyle?    @relation(fields: [visualStyleId], references: [id], onDelete: SetNull)
+  assets        Asset[]
+  jobs          GenerationJob[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([projectId])
+  @@index([characterId])
+  @@index([locationId])
+  @@index([visualStyleId])
+}
+
+model VisualStyle {
+  id              String          @id @default(uuid()) @db.Uuid
+  slug            String          @unique
+  name            String
+  description     String?
+  prompt          String
+  negativePrompt  String?
+  primaryColor    String?
+  secondaryColor  String?
+  accentColor     String?
+  contrastLevel   Int?
+  saturationLevel Int?
+  grainLevel      Int?
+  lineThickness   Int?
+  isDefault       Boolean         @default(false)
+  scenes          Scene[]
+  jobs            GenerationJob[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+}
+
+model Asset {
+  id             String              @id @default(uuid()) @db.Uuid
+  projectId      String?             @db.Uuid
+  project        UserBookProject?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sceneId        String?             @db.Uuid
+  scene          Scene?              @relation(fields: [sceneId], references: [id], onDelete: SetNull)
+  jobId          String?             @db.Uuid
+  job            GenerationJob?      @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  type           AssetType           @default(GENERATED)
+  approvalStatus AssetApprovalStatus @default(DRAFT)
+  localPath      String
+  mimeType       String
+  width          Int?
+  height         Int?
+  prompt         String?
+  seed           Int?
+  model          String?
+  provider       String?
+  entityType     AssetEntityType?
+  entityId       String?             @db.Uuid
+  metadata       Json?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([projectId])
+  @@index([sceneId])
+  @@index([jobId])
+  @@index([entityId])
+  @@index([entityType, entityId])
+}
+
+model GenerationJob {
+  id             String              @id @default(uuid()) @db.Uuid
+  projectId      String?             @db.Uuid
+  project        UserBookProject?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId         String?             @db.Uuid
+  user           User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sceneId        String?             @db.Uuid
+  scene          Scene?              @relation(fields: [sceneId], references: [id], onDelete: SetNull)
+  bookAnalysisId String?             @unique @db.Uuid
+  bookAnalysis   BookAnalysis?       @relation(fields: [bookAnalysisId], references: [id], onDelete: SetNull)
+  visualStyleId  String?             @db.Uuid
+  visualStyle    VisualStyle?        @relation(fields: [visualStyleId], references: [id], onDelete: SetNull)
+  status         GenerationJobStatus @default(QUEUED)
+  progress       Int                 @default(0)
+  input          Json
+  output         Json?
+  error          Json?
+  assets         Asset[]
+  aiLogs         AiProviderLog[]
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([projectId])
+  @@index([userId])
+  @@index([sceneId])
+  @@index([bookAnalysisId])
+}
+
+model AiProviderLog {
+  id              String              @id @default(uuid()) @db.Uuid
+  userId          String?             @db.Uuid
+  user            User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  bookAnalysisId  String?             @db.Uuid
+  bookAnalysis    BookAnalysis?       @relation(fields: [bookAnalysisId], references: [id], onDelete: SetNull)
+  generationJobId String?             @db.Uuid
+  generationJob   GenerationJob?      @relation(fields: [generationJobId], references: [id], onDelete: SetNull)
+  provider        String
+  model           String?
+  status          AiProviderLogStatus
+  request         Json?
+  response        Json?
+  error           Json?
+  latencyMs       Int?
+  tokenUsage      Json?
+  createdAt       DateTime            @default(now())
+
+  @@index([userId])
+  @@index([bookAnalysisId])
+  @@index([generationJobId])
+}
