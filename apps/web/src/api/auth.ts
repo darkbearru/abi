@@ -7,20 +7,20 @@ export interface AuthTokenStorage extends AuthTokenProvider {
   clearToken(): void;
 }
 
-const TOKEN_STORAGE_KEY = 'abi.auth.accessToken';
+class MemoryAuthTokenProvider implements AuthTokenStorage {
+  private token: string | null = null;
 
-class LocalStorageAuthTokenProvider implements AuthTokenStorage {
   getToken(): string | null {
-    return localStorage.getItem(TOKEN_STORAGE_KEY);
+    return this.token;
   }
 
   setToken(token: string): void {
-    localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    this.token = token;
   }
 
   clearToken(): void {
-    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    this.token = null;
   }
 }
 
-export const authTokenProvider: AuthTokenStorage = new LocalStorageAuthTokenProvider();
+export const authTokenProvider: AuthTokenStorage = new MemoryAuthTokenProvider();

@@ -34,9 +34,7 @@ export class ProjectAccessService {
       return;
     }
 
-    const ownerIds = [job.userId, job.project?.userId].filter(
-      (ownerId): ownerId is string => ownerId !== null && ownerId !== undefined
-    );
+    const ownerIds = [job.userId, ...(job.project?.userId ? [job.project.userId] : [])];
 
     if (ownerIds.includes(userId ?? '')) {
       return;

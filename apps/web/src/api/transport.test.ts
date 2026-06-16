@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AuthTokenProvider } from './auth';
 import type { ApiError } from './errors';
@@ -6,6 +6,10 @@ import { NetworkError } from './errors';
 import { ApiTransport } from './transport';
 
 describe('ApiTransport', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('adds placeholder auth token when provider returns one', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ ok: true }));
     const tokenProvider: AuthTokenProvider = {
@@ -69,7 +73,61 @@ describe('ApiTransport', () => {
 
     const [, init] = fetcher.mock.calls[0] ?? [];
     expect(init?.body).toBe('{"text":"Scene","styleId":"style-1"}');
+    expect(init?.credentials).toBe('include');
     expect(getRequestHeaders(fetcher).get('Content-Type')).toBe('application/json');
+  });
+
+  it('adds csrf header for unsafe requests when csrf cookie exists', async () => {
+    Object.defineProperty(globalThis.document, 'cookie', {
+      configurable: true,
+      get() {
+        return 'abi_csrf_token=csrf-token';
+      }
+    });
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ ok: true }));
+    const transport = new ApiTransport({ baseUrl: 'http://api.test', fetcher, retryDelayMs: 0 });
+
+    await transport.request('/auth/logout', { method: 'POST' });
+
+    expect(getRequestHeaders(fetcher).get('X-CSRF-Token')).toBe('csrf-token');
+  });
+
+  it('does not add csrf header for safe GET requests', async () => {
+    Object.defineProperty(globalThis.document, 'cookie', {
+      configurable: true,
+      get() {
+        return 'abi_csrf_token=csrf-token';
+      }
+    });
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ ok: true }));
+    const transport = new ApiTransport({ baseUrl: 'http://api.test', fetcher, retryDelayMs: 0 });
+
+    await transport.request('/auth/me');
+
+    expect(getRequestHeaders(fetcher).has('X-CSRF-Token')).toBe(false);
+  });
+
+
+  it('fetches protected blobs with auth headers', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response('image-bytes', {
+        status: 200,
+        headers: { 'Content-Type': 'image/png' }
+      })
+    );
+    const tokenProvider: AuthTokenProvider = {
+      getToken: () => 'asset-token'
+    };
+    const transport = new ApiTransport({
+      baseUrl: 'http://api.test',
+      fetcher,
+      tokenProvider,
+      retryDelayMs: 0
+    });
+
+    await expect(transport.requestBlob('/assets/asset-1/file')).resolves.toBeInstanceOf(Blob);
+    expect(fetcher.mock.calls[0]?.[1]?.credentials).toBe('include');
+    expect(getRequestHeaders(fetcher).get('Authorization')).toBe('Bearer asset-token');
   });
 });
 

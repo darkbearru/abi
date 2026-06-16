@@ -8,5 +8,5 @@ export const assetsClient = {
   validate: (assetId: string) =>
     apiTransport.request<unknown>(`/assets/${assetId}/validate`, { method: 'POST' }),
   fileUrl: (assetId: string) => apiTransport.assetFileUrl(assetId),
-  assetUrl: (localPath: string) => apiTransport.assetUrl(localPath)
+  fileBlob: (assetId: string) => apiTransport.requestBlob(`/assets/${assetId}/file`)
 };

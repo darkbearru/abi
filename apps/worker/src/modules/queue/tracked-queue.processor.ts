@@ -1,4 +1,5 @@
 import { WorkerHost } from '@nestjs/bullmq';
+import type { Prisma } from '@prisma/client';
 import type { Job } from 'bullmq';
 
 import type { PrismaService } from '../../prisma/prisma.service.js';
@@ -24,7 +25,7 @@ export abstract class TrackedQueueProcessor extends WorkerHost {
     });
     await job.updateProgress(10);
 
-    await this.handle(job);
+    const output = await this.handle(job);
 
     await job.updateProgress(100);
     await this.prisma.generationJob.update({
@@ -35,13 +36,16 @@ export abstract class TrackedQueueProcessor extends WorkerHost {
         output: {
           queueName: this.queueName,
           bullJobId: String(job.id),
-          completedAt: new Date().toISOString()
-        }
+          completedAt: new Date().toISOString(),
+          ...(output ?? {})
+        } satisfies Prisma.InputJsonObject
       }
     });
   }
 
-  protected async handle(job: Job<Record<string, unknown>>): Promise<void> {
+  protected async handle(
+    job: Job<Record<string, unknown>>
+  ): Promise<Prisma.InputJsonObject | undefined> {
     await job.updateProgress(50);
     await this.prisma.generationJob.update({
       where: { id: getGenerationJobId(job) },

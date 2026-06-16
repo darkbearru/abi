@@ -14,7 +14,8 @@ describe('JwtTokenService', () => {
     const token = service.sign({
       id: 'user-1',
       email: 'reader@example.com',
-      name: 'Reader'
+      name: 'Reader',
+      role: 'USER'
     });
 
     expect(service.verify(token)).toMatchObject({
@@ -32,7 +33,8 @@ describe('JwtTokenService', () => {
     const token = service.sign({
       id: 'user-1',
       email: 'reader@example.com',
-      name: null
+      name: null,
+      role: 'USER'
     });
 
     vi.setSystemTime(new Date('2026-06-15T00:02:00.000Z'));

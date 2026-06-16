@@ -26,9 +26,19 @@ import { QueueModule } from './modules/queue/queue.module.js';
 
 @Module({
   imports: [
-    AiCoreModule,
+    AiCoreModule.register(
+      process.env.OPENAI_API_KEY
+        ? {
+            openAi: {
+              apiKey: process.env.OPENAI_API_KEY
+            }
+          }
+        : {}
+    ),
     PromptsModule,
-    StorageModule,
+    StorageModule.register({
+      rootDir: process.env.LOCAL_STORAGE_PATH ?? process.env.STORAGE_ROOT ?? './storage'
+    }),
     ValidationModule,
     PrismaModule,
     AuthModule,

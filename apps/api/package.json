@@ -32,6 +32,7 @@
     "class-validator": "^0.15.1",
     "fast-xml-parser": "^5.9.0",
     "ioredis": "^5.11.1",
+    "multer": "^2.0.2",
     "neo4j-driver": "^6.1.0",
     "pdf-parse": "^2.4.5",
     "reflect-metadata": "^0.2.2",

@@ -42,6 +42,9 @@ export class AuthUserDto {
 
   @ApiPropertyOptional({ nullable: true })
   public readonly name!: string | null;
+
+  @ApiProperty({ enum: ['USER', 'ADMIN'] })
+  public readonly role!: 'USER' | 'ADMIN';
 }
 
 export class AuthResponseDto {

@@ -17,6 +17,8 @@ interface TransportOptions {
 
 const DEFAULT_RETRY_ATTEMPTS = 2;
 const DEFAULT_RETRY_DELAY_MS = 150;
+const CSRF_COOKIE_NAME = 'abi_csrf_token';
+const CSRF_HEADER_NAME = 'X-CSRF-Token';
 
 export class ApiTransport {
   private readonly baseUrl: string;
@@ -50,12 +52,50 @@ export class ApiTransport {
     throw new NetworkError('Request failed');
   }
 
-  assetUrl(localPath: string): string {
-    return `${this.baseUrl}/storage/${localPath.replace(/^\/+/, '')}`;
-  }
-
   assetFileUrl(assetId: string): string {
     return `${this.baseUrl}/assets/${encodeURIComponent(assetId)}/file`;
+  }
+
+  async requestBlob(path: string, options: ApiRequestOptions = {}): Promise<Blob> {
+    const method = options.method ?? 'GET';
+
+    if (method !== 'GET') {
+      throw new NetworkError('Blob requests only support safe GET requests');
+    }
+
+    const { body: ignoredBody, headers: inputHeaders, ...rest } = options;
+    const headers = new Headers(inputHeaders);
+    const token = this.tokenProvider.getToken();
+
+    void ignoredBody;
+
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+
+    try {
+      const response = await this.fetcher(`${this.baseUrl}${path}`, {
+        ...rest,
+        method,
+        headers,
+        credentials: rest.credentials ?? 'include'
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        const payload = text ? parseJson(text) : null;
+
+        throw new ApiError(getErrorMessage(payload, response.statusText), response.status, payload);
+      }
+
+      return await response.blob();
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+
+      throw new NetworkError('Network request failed', error);
+    }
   }
 
   private async execute<T>(
@@ -71,6 +111,14 @@ export class ApiTransport {
       headers.set('Authorization', `Bearer ${token}`);
     }
 
+    if (!isSafeMethod(method) && !headers.has(CSRF_HEADER_NAME)) {
+      const csrfToken = getCookieValue(CSRF_COOKIE_NAME);
+
+      if (csrfToken) {
+        headers.set(CSRF_HEADER_NAME, csrfToken);
+      }
+    }
+
     const requestBody = serializeBody(body, headers);
 
     let response: Response;
@@ -78,7 +126,8 @@ export class ApiTransport {
     const init: RequestInit = {
       ...rest,
       method,
-      headers
+      headers,
+      credentials: rest.credentials ?? 'include'
     };
 
     if (requestBody !== undefined) {
@@ -99,6 +148,32 @@ export class ApiTransport {
     }
 
     return payload as T;
+  }
+}
+
+function isSafeMethod(method: HttpMethod): boolean {
+  return method === 'GET';
+}
+
+function getCookieValue(name: string): string | undefined {
+  if (typeof globalThis.document === 'undefined') {
+    return undefined;
+  }
+
+  const prefix = `${name}=`;
+  const cookie = globalThis.document.cookie
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix));
+
+  if (!cookie) {
+    return undefined;
+  }
+
+  try {
+    return decodeURIComponent(cookie.slice(prefix.length));
+  } catch {
+    return undefined;
   }
 }
 

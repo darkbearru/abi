@@ -30,7 +30,12 @@ const DEFAULT_ASSET_TYPES = [
 const LOCATION_VERSION_INCLUDE = {
   location: {
     include: {
-      worldBible: true
+      worldBible: {
+        include: {
+          project: { select: { userId: true } },
+          series: { select: { userId: true } }
+        }
+      }
     }
   }
 } satisfies Prisma.LocationVersionInclude;
@@ -74,9 +79,11 @@ export class LocationVisualPassportService {
     const model = dto.model ?? process.env.LOCATION_PASSPORT_IMAGE_MODEL;
     const size = dto.size ?? process.env.LOCATION_PASSPORT_IMAGE_SIZE ?? '1024x1024';
     const projectId = locationVersion.location.worldBible.projectId;
+    const userId = requireWorldBibleUserId(locationVersion.location.worldBible);
     const job = await this.prisma.generationJob.create({
       data: {
         ...(projectId === null ? {} : { projectId }),
+        userId,
         visualStyleId: visualStyle.id,
         status: 'PROCESSING',
         progress: 0,
@@ -388,6 +395,18 @@ function toInputJsonObject(value: Record<string, unknown>): Prisma.InputJsonObje
       isInputJsonValue(entry[1])
     )
   );
+}
+
+function requireWorldBibleUserId(
+  worldBible: LocationVersionWithLocation['location']['worldBible']
+): string {
+  const userId = worldBible.project?.userId ?? worldBible.series?.userId;
+
+  if (!userId) {
+    throw new Error('World bible does not have a project or series owner.');
+  }
+
+  return userId;
 }
 
 function isInputJsonValue(value: unknown): value is Prisma.InputJsonValue {

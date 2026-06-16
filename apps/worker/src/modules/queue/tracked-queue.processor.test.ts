@@ -2,6 +2,7 @@ import type { Job } from 'bullmq';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { PrismaService } from '../../prisma/prisma.service.js';
+import { ImageGenerationProcessor } from './queue.processors.js';
 import { TrackedQueueProcessor } from './tracked-queue.processor.js';
 
 class TestProcessor extends TrackedQueueProcessor {
@@ -60,6 +61,76 @@ describe('TrackedQueueProcessor', () => {
     expect(updatePayload?.data?.error).toMatchObject({
       deadLetter: true,
       message: 'failed'
+    });
+  });
+
+  it('creates a scene asset for image-generation jobs', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const createGenerationJob = vi.fn().mockResolvedValue({ id: 'validation-job-1' });
+    const createAsset = vi.fn().mockResolvedValue({ id: 'asset-1' });
+    const updateScene = vi.fn().mockResolvedValue({});
+    const processor = new ImageGenerationProcessor(
+      {
+        generationJob: { update, create: createGenerationJob },
+        asset: { create: createAsset },
+        scene: { update: updateScene },
+        userBookProject: {
+          findUnique: vi.fn().mockResolvedValue({ userId: 'user-1' })
+        }
+      } as unknown as PrismaService,
+      {
+        generateImage: vi.fn().mockResolvedValue({
+          providerId: 'mock-image',
+          model: 'mock-model',
+          images: [
+            {
+              b64Json: Buffer.from('image-bytes').toString('base64'),
+              mimeType: 'image/png',
+              width: 32,
+              height: 32
+            }
+          ]
+        })
+      } as never,
+      {
+        putObject: vi.fn().mockResolvedValue({
+          key: 'scenes/scene-1/image.png'
+        })
+      } as never,
+      {
+        add: vi.fn().mockResolvedValue({ id: 'validation-job-1' })
+      } as never
+    );
+    const job = {
+      id: 'bull-job-1',
+      data: {
+        generationJobId: 'job-1',
+        sceneId: 'scene-1',
+        projectId: 'project-1',
+        prompt: 'A scene prompt',
+        providerId: 'mock',
+        referenceAssetIds: ['asset-ref-1']
+      },
+      updateProgress: vi.fn().mockResolvedValue(undefined)
+    } as unknown as Job<Record<string, unknown>>;
+
+    await expect(processor.process(job)).resolves.toBeUndefined();
+    const createPayload = createAsset.mock.calls[0]?.[0] as
+      | { readonly data?: Record<string, unknown> }
+      | undefined;
+
+    expect(createPayload?.data).toMatchObject({
+      projectId: 'project-1',
+      sceneId: 'scene-1',
+      jobId: 'job-1',
+      localPath: 'scenes/scene-1/image.png',
+      provider: 'mock-image',
+      entityType: 'SCENE',
+      entityId: 'scene-1'
+    });
+    expect(updateScene).toHaveBeenCalledWith({
+      where: { id: 'scene-1' },
+      data: { status: 'COMPLETED' }
     });
   });
 });

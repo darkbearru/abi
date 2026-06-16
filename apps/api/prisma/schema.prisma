@@ -80,6 +80,11 @@ enum AiProviderLogStatus {
   ERROR
 }
 
+enum UserRole {
+  USER
+  ADMIN
+}
+
 enum ExtractedFactType {
   CHARACTER_MENTION
   CHARACTER_ALIAS
@@ -127,6 +132,7 @@ model User {
   email      String            @unique
   name       String?
   passwordHash String?
+  role       UserRole          @default(USER)
   projects   UserBookProject[]
   bookSeries BookSeries[]
   jobs       GenerationJob[]
@@ -198,8 +204,8 @@ model BookAnalysis {
 
 model BookSeries {
   id          String            @id @default(uuid()) @db.Uuid
-  userId      String?           @db.Uuid
-  user        User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId      String            @db.Uuid
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   title       String
   description String?
   books       BookSeriesBook[]
@@ -617,8 +623,8 @@ model GenerationJob {
   id             String              @id @default(uuid()) @db.Uuid
   projectId      String?             @db.Uuid
   project        UserBookProject?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  userId         String?             @db.Uuid
-  user           User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId         String              @db.Uuid
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   sceneId        String?             @db.Uuid
   scene          Scene?              @relation(fields: [sceneId], references: [id], onDelete: SetNull)
   bookAnalysisId String?             @db.Uuid

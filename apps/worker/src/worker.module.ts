@@ -24,7 +24,9 @@ import { QueueModule } from './modules/queue/queue.module.js';
     ),
     BookParserModule,
     PromptsModule,
-    StorageModule,
+    StorageModule.register({
+      rootDir: process.env.LOCAL_STORAGE_PATH ?? process.env.STORAGE_ROOT ?? './storage'
+    }),
     ValidationModule,
     QueueModule,
     CharacterExtractionModule,

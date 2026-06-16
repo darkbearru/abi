@@ -13,13 +13,13 @@ interface AuthState {
 
 export const useAuthStore = defineStore('auth', {
   state: (): AuthState => ({
-    status: authTokenProvider.getToken() ? 'loading' : 'idle',
+    status: readStoredUser() ? 'loading' : 'idle',
     error: null,
     user: readStoredUser()
   }),
   getters: {
     isAuthenticated(state): boolean {
-      return authTokenProvider.getToken() !== null && state.user !== null;
+      return state.user !== null;
     }
   },
   actions: {
@@ -32,11 +32,6 @@ export const useAuthStore = defineStore('auth', {
     },
 
     async loadCurrentUser(): Promise<void> {
-      if (authTokenProvider.getToken() === null) {
-        this.clearSession();
-        return;
-      }
-
       this.status = 'loading';
       this.error = null;
 
@@ -50,8 +45,12 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
-    logout(): void {
-      this.clearSession();
+    async logout(): Promise<void> {
+      try {
+        await authClient.logout();
+      } finally {
+        this.clearSession();
+      }
     },
 
     async authenticate(request: () => Promise<AuthResponse>): Promise<void> {
@@ -60,7 +59,6 @@ export const useAuthStore = defineStore('auth', {
 
       try {
         const response = await request();
-        authTokenProvider.setToken(response.accessToken);
         this.setUser(response.user);
         this.status = 'success';
       } catch (error) {
@@ -99,7 +97,8 @@ function readStoredUser(): AuthUser | null {
       return {
         id: parsed.id,
         email: parsed.email,
-        name: typeof parsed.name === 'string' ? parsed.name : null
+        name: typeof parsed.name === 'string' ? parsed.name : null,
+        role: parsed.role === 'ADMIN' ? 'ADMIN' : 'USER'
       };
     }
   } catch {

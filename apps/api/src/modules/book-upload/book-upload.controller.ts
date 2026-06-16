@@ -1,3 +1,8 @@
+import { randomUUID } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
+import { readFile, unlink } from 'node:fs/promises';
+import { extname, join } from 'node:path';
+
 import {
   BadRequestException,
   Body,
@@ -7,6 +12,7 @@ import {
   UseInterceptors
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
 import {
   ApiBody,
   ApiConsumes,
@@ -28,7 +34,8 @@ interface MulterMemoryFile {
   readonly originalname: string;
   readonly mimetype: string;
   readonly size: number;
-  readonly buffer: Buffer;
+  readonly buffer?: Buffer;
+  readonly path?: string;
 }
 
 @ApiTags('books')
@@ -42,8 +49,22 @@ export class BookUploadController {
   @Post('upload')
   @UseInterceptors(
     FileInterceptor('file', {
+      storage: diskStorage({
+        destination: (_request, _file, callback) => {
+          const uploadTempRoot = getBookUploadTempRoot();
+
+          mkdirSync(uploadTempRoot, { recursive: true });
+          callback(null, uploadTempRoot);
+        },
+        filename: (_request, file, callback) => {
+          callback(null, `${randomUUID()}${extname(file.originalname).toLowerCase()}`);
+        }
+      }),
       limits: {
-        fileSize: getBookUploadConfig().maxFileSizeBytes
+        fileSize: getBookUploadConfig().maxFileSizeBytes,
+        files: 1,
+        fields: 3,
+        fieldSize: getBookUploadConfig().maxFieldSizeBytes
       }
     })
   )
@@ -72,7 +93,7 @@ export class BookUploadController {
     }
   })
   @ApiCreatedResponse({ type: UploadBookResponseDto })
-  public uploadBook(
+  public async uploadBook(
     @UploadedFile() file: MulterMemoryFile | undefined,
     @Body() dto: UploadBookDto,
     @CurrentUser() user: AuthenticatedUser
@@ -85,11 +106,39 @@ export class BookUploadController {
       originalname: file.originalname,
       mimetype: file.mimetype,
       size: file.size,
-      buffer: file.buffer
+      buffer: file.buffer ?? (await readFile(requireTempFilePath(file)))
     };
 
-    this.bookFileValidator.validate(uploadedFile);
+    try {
+      this.bookFileValidator.validate(uploadedFile);
 
-    return this.bookUploadService.upload(uploadedFile, dto, user.id);
+      return await this.bookUploadService.upload(uploadedFile, dto, user.id);
+    } finally {
+      await deleteTempFile(file.path);
+    }
+  }
+}
+
+function getBookUploadTempRoot(): string {
+  return process.env.BOOK_UPLOAD_TEMP_ROOT ?? join(getBookUploadConfig().storageRoot, '.tmp', 'uploads');
+}
+
+function requireTempFilePath(file: MulterMemoryFile): string {
+  if (!file.path) {
+    throw new BadRequestException('Uploaded file payload is unavailable.');
+  }
+
+  return file.path;
+}
+
+async function deleteTempFile(path: string | undefined): Promise<void> {
+  if (!path) {
+    return;
+  }
+
+  try {
+    await unlink(path);
+  } catch {
+    // Best-effort cleanup; failed uploads should not mask the original error.
   }
 }

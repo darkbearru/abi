@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Asset, AsyncStatus } from '@abi/shared';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 import { assetsClient } from '../api';
 import PageHeader from '../components/PageHeader.vue';
@@ -11,6 +11,7 @@ const projects = useProjectsStore();
 const status = ref<AsyncStatus>('idle');
 const error = ref<string | null>(null);
 const assets = ref<Asset[]>([]);
+const assetUrls = ref<Record<string, string>>({});
 
 const projectId = computed(() => projects.activeProjectId);
 
@@ -25,7 +26,10 @@ async function loadAssets(): Promise<void> {
   error.value = null;
 
   try {
-    assets.value = [...(await assetsClient.list(projectId.value))];
+    const loadedAssets = [...(await assetsClient.list(projectId.value))];
+
+    assets.value = loadedAssets;
+    await loadAssetUrls(loadedAssets);
     status.value = 'success';
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : 'Unable to load gallery';
@@ -33,8 +37,30 @@ async function loadAssets(): Promise<void> {
   }
 }
 
+async function loadAssetUrls(loadedAssets: readonly Asset[]): Promise<void> {
+  revokeAssetUrls();
+
+  const entries = await Promise.all(
+    loadedAssets.map(async (asset) => {
+      const blob = await assetsClient.fileBlob(asset.id);
+
+      return [asset.id, URL.createObjectURL(blob)] as const;
+    })
+  );
+
+  assetUrls.value = Object.fromEntries(entries);
+}
+
+function revokeAssetUrls(): void {
+  Object.values(assetUrls.value).forEach((url) => {
+    URL.revokeObjectURL(url);
+  });
+  assetUrls.value = {};
+}
+
 onMounted(loadAssets);
 watch(projectId, loadAssets);
+onBeforeUnmount(revokeAssetUrls);
 </script>
 
 <template>
@@ -49,7 +75,7 @@ watch(projectId, loadAssets);
       <article v-for="asset in assets" :key="asset.id" class="overflow-hidden rounded-md border border-slate-200 bg-white">
         <img
           class="aspect-video w-full bg-slate-100 object-cover"
-          :src="assetsClient.assetUrl(asset.localPath)"
+          :src="assetUrls[asset.id]"
           :alt="asset.prompt ?? asset.entityType ?? 'Generated asset'"
         >
         <div class="space-y-2 p-3 text-sm">

@@ -34,7 +34,7 @@ function onProjectChange(event: Event): void {
 }
 
 async function logout(): Promise<void> {
-  auth.logout();
+  await auth.logout();
   projects.clearProjects();
   await router.replace({ name: 'login' });
 }

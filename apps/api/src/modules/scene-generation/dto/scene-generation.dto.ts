@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 import { ValidationResultDto } from '../../consistency-validation/dto/consistency-validation.dto.js';
 
@@ -17,8 +17,7 @@ export class GenerateSceneDto {
   public readonly text!: string;
 
   @ApiProperty()
-  @IsString()
-  @MaxLength(64)
+  @IsUUID()
   public readonly styleId!: string;
 
   @ApiPropertyOptional()
@@ -30,7 +29,7 @@ export class GenerateSceneDto {
   @ApiPropertyOptional({ example: '16:9' })
   @IsOptional()
   @IsString()
-  @MaxLength(16)
+  @IsIn(['1:1', '4:3', '3:4', '16:9', '9:16', '21:9'])
   public readonly aspectRatio?: string;
 }
 

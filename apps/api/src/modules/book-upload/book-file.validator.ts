@@ -1,4 +1,4 @@
-import { extname } from 'node:path';
+import { extname, normalize } from 'node:path';
 
 import AdmZip from 'adm-zip';
 import { Injectable, PayloadTooLargeException } from '@nestjs/common';
@@ -10,6 +10,9 @@ import {
 import { getBookUploadConfig } from './book-upload.config.js';
 import { UnsupportedBookFileTypeException } from './book-upload.errors.js';
 import type { UploadedBookFile } from './book-upload.types.js';
+
+const MAX_EPUB_ENTRY_COUNT = 2_000;
+const MAX_EPUB_ENTRY_NAME_LENGTH = 512;
 
 @Injectable()
 export class BookFileValidator {
@@ -65,6 +68,15 @@ function isValidEpubArchive(file: UploadedBookFile): boolean {
   try {
     const zip = new AdmZip(file.buffer);
     const entries = zip.getEntries();
+
+    if (
+      entries.length === 0 ||
+      entries.length > MAX_EPUB_ENTRY_COUNT ||
+      entries.some((entry) => hasUnsafeZipEntryName(entry.entryName))
+    ) {
+      return false;
+    }
+
     const totalUncompressedSize = entries.reduce(
       (sum, entry) => sum + entry.header.size,
       0
@@ -83,4 +95,17 @@ function isValidEpubArchive(file: UploadedBookFile): boolean {
   } catch {
     return false;
   }
+}
+
+function hasUnsafeZipEntryName(entryName: string): boolean {
+  const normalized = normalize(entryName).replaceAll('\\', '/');
+
+  return (
+    entryName.length === 0 ||
+    entryName.length > MAX_EPUB_ENTRY_NAME_LENGTH ||
+    normalized.startsWith('../') ||
+    normalized === '..' ||
+    normalized.includes('/../') ||
+    normalized.startsWith('/')
+  );
 }

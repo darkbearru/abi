@@ -13,9 +13,19 @@ vi.mock('@nestjs/bullmq', async () => {
         module: MockBullModule
       }),
       registerQueue: () => ({
-        module: MockBullModule
+        module: MockBullModule,
+        providers: [
+          {
+            provide: 'MOCK_QUEUE',
+            useValue: {
+              add: vi.fn()
+            }
+          }
+        ],
+        exports: ['MOCK_QUEUE']
       })
     },
+    InjectQueue: () => common.Inject('MOCK_QUEUE'),
     OnWorkerEvent: () => () => undefined,
     Processor: () => common.Injectable(),
     WorkerHost: MockWorkerHost

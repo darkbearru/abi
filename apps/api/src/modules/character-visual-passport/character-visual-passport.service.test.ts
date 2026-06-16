@@ -28,6 +28,7 @@ interface AssetCreatePayload {
 interface GenerationJobCreatePayload {
   readonly data: {
     readonly projectId?: string;
+    readonly userId: string;
     readonly visualStyleId: string;
     readonly status: string;
     readonly progress: number;
@@ -103,7 +104,9 @@ describe('CharacterVisualPassportService', () => {
             canonicalName: 'Mara',
             worldBible: {
               id: 'world-bible-1',
-              projectId: 'project-1'
+              projectId: 'project-1',
+              project: { userId: 'user-1' },
+              series: null
             }
           }
         })
@@ -177,6 +180,7 @@ describe('CharacterVisualPassportService', () => {
     const finalJobUpdatePayload = generationJobUpdate.mock.calls.at(-1)?.[0];
 
     expect(createdJobPayload?.data.projectId).toBe('project-1');
+    expect(createdJobPayload?.data.userId).toBe('user-1');
     expect(createdJobPayload?.data.visualStyleId).toBe('visual-style-1');
     expect(createdJobPayload?.data.status).toBe('PROCESSING');
     expect(createdAssetPayload?.data.jobId).toBe('job-1');

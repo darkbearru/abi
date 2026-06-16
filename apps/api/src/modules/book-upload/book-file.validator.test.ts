@@ -1,4 +1,5 @@
 import { PayloadTooLargeException } from '@nestjs/common';
+import AdmZip from 'adm-zip';
 import { describe, expect, it } from 'vitest';
 
 import { BookFileValidator } from './book-file.validator.js';
@@ -40,6 +41,25 @@ describe('BookFileValidator', () => {
         buffer: Buffer.from('hello')
       });
     }).toThrow(PayloadTooLargeException);
+  });
+
+  it('rejects EPUB archives with unsafe entry names', () => {
+    const zip = new AdmZip();
+
+    zip.addFile('mimetype', Buffer.from('application/epub+zip'));
+    zip.addFile('META-INF/container.xml', Buffer.from('<container />'));
+    zip.addFile(`${'a'.repeat(513)}.txt`, Buffer.from('nope'));
+
+    const buffer = zip.toBuffer();
+
+    expect(() => {
+      validator.validate({
+        originalname: 'book.epub',
+        mimetype: 'application/epub+zip',
+        size: buffer.byteLength,
+        buffer
+      });
+    }).toThrow(UnsupportedBookFileTypeException);
   });
 });
 

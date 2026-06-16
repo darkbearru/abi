@@ -1,8 +1,13 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { getAuthConfig } from './auth.config.js';
+import { AuthRateLimitService } from './auth-rate-limit.service.js';
 import type { AuthenticatedUser } from './auth.types.js';
 import type { AuthResponseDto, LoginDto, RegisterDto } from './dto/auth.dto.js';
 import { JwtTokenService } from './jwt-token.service.js';
@@ -13,7 +18,8 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
-    private readonly tokens: JwtTokenService
+    private readonly tokens: JwtTokenService,
+    private readonly rateLimit: AuthRateLimitService
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthResponseDto> {
@@ -40,20 +46,28 @@ export class AuthService {
     }
   }
 
-  async login(dto: LoginDto): Promise<AuthResponseDto> {
+  async login(dto: LoginDto, clientIp?: string): Promise<AuthResponseDto> {
+    const email = normalizeEmail(dto.email);
+
+    await this.rateLimit.assertLoginAllowed(email, clientIp);
+
     const user: AuthUserWithPassword | null = await this.prisma.user.findUnique({
-      where: { email: normalizeEmail(dto.email) },
+      where: { email },
       select: AUTH_USER_WITH_PASSWORD_SELECT
     });
 
     if (user === null || !(await this.passwords.verify(dto.password, user.passwordHash))) {
+      await this.rateLimit.recordFailedLogin(email, clientIp);
       throw new UnauthorizedException('Invalid email or password.');
     }
+
+    await this.rateLimit.clearLoginFailures(email, clientIp);
 
     const authenticatedUser: AuthenticatedUser = {
       id: user.id,
       email: user.email,
-      name: user.name
+      name: user.name,
+      role: user.role
     };
 
     return this.issueToken(authenticatedUser);
@@ -85,7 +99,8 @@ export class AuthService {
 const AUTH_USER_SELECT = {
   id: true,
   email: true,
-  name: true
+  name: true,
+  role: true
 } satisfies Prisma.UserSelect;
 
 const AUTH_USER_WITH_PASSWORD_SELECT = {

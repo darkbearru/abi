@@ -18,7 +18,14 @@ describe('QueueService', () => {
           input: {
             queueName: 'image-generation',
             name: 'generate-scene',
-            payload: { sceneId: 'scene-1' },
+            payload: {
+              sceneId: 'scene-1',
+              text: {
+                redacted: true,
+                length: 17,
+                preview: 'full scene prompt'
+              }
+            },
             attempts: 3
           },
           output: null,
@@ -45,7 +52,7 @@ describe('QueueService', () => {
         name: 'generate-scene',
         projectId: 'project-1',
         userId: 'user-1',
-        payload: { sceneId: 'scene-1' }
+        payload: { sceneId: 'scene-1', text: 'full scene prompt' }
       })
     ).resolves.toMatchObject({
       id: 'job-1',
@@ -56,13 +63,36 @@ describe('QueueService', () => {
     });
     expect(add).toHaveBeenCalledWith(
       'generate-scene',
-      { sceneId: 'scene-1', generationJobId: 'job-1' },
+      {
+        sceneId: 'scene-1',
+        text: 'full scene prompt',
+        userId: 'user-1',
+        generationJobId: 'job-1'
+      },
       expect.objectContaining({
         attempts: 3,
         jobId: 'job-1',
         removeOnFail: false
       })
     );
+    const createPayload = prisma.generationJob.create.mock.calls[0]?.[0] as
+      | {
+          readonly data?: {
+            readonly input?: {
+              readonly payload?: Record<string, unknown>;
+            };
+          };
+        }
+      | undefined;
+
+    expect(createPayload?.data?.input?.payload).toMatchObject({
+      sceneId: 'scene-1',
+      text: {
+        redacted: true,
+        length: 17,
+        preview: 'full scene prompt'
+      }
+    });
   });
 
   it('marks tracked job as failed when BullMQ enqueue fails', async () => {
@@ -156,7 +186,111 @@ describe('QueueService', () => {
         name: 'analyze-book',
         payload: { bookId: 'book-1' }
       })
-    ).rejects.toThrow('Queue jobs must include projectId or userId.');
+    ).rejects.toThrow('Queue jobs must include userId or a valid projectId.');
     expect(prisma.generationJob.create).not.toHaveBeenCalled();
+  });
+
+  it('derives job owner from projectId when userId is omitted', async () => {
+    const add = vi.fn().mockResolvedValue(undefined);
+    const prisma = {
+      userBookProject: {
+        findUnique: vi.fn().mockResolvedValue({ userId: 'project-owner-1' })
+      },
+      generationJob: {
+        create: vi.fn().mockResolvedValue({
+          id: 'job-1',
+          projectId: 'project-1',
+          userId: 'project-owner-1',
+          sceneId: null,
+          bookAnalysisId: null,
+          status: 'QUEUED',
+          progress: 0,
+          input: {
+            queueName: 'book-analysis',
+            name: 'analyze-book',
+            payload: { bookId: 'book-1' },
+            attempts: 3
+          },
+          output: null,
+          error: null,
+          createdAt: new Date('2026-06-15T00:00:00.000Z'),
+          updatedAt: new Date('2026-06-15T00:00:00.000Z')
+        })
+      }
+    };
+    const service = new QueueService(
+      { add } as never,
+      { add } as never,
+      { add } as never,
+      { add } as never,
+      { add } as never,
+      { add } as never,
+      { add } as never,
+      prisma as never
+    );
+
+    await service.createJob({
+      queueName: 'book-analysis',
+      name: 'analyze-book',
+      projectId: 'project-1',
+      payload: { bookId: 'book-1' }
+    });
+
+    const createPayload = prisma.generationJob.create.mock.calls[0]?.[0] as
+      | { readonly data?: { readonly userId?: string } }
+      | undefined;
+
+    expect(createPayload?.data?.userId).toBe('project-owner-1');
+    expect(add).toHaveBeenCalledWith(
+      'analyze-book',
+      { bookId: 'book-1', userId: 'project-owner-1', generationJobId: 'job-1' },
+      expect.objectContaining({ jobId: 'job-1' })
+    );
+  });
+
+  it('recovers queued jobs by re-enqueuing stored payloads', async () => {
+    const add = vi.fn().mockResolvedValue(undefined);
+    const prisma = {
+      generationJob: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'job-1',
+            projectId: 'project-1',
+            userId: 'user-1',
+            sceneId: null,
+            bookAnalysisId: null,
+            status: 'QUEUED',
+            progress: 0,
+            input: {
+              queueName: 'image-generation',
+              name: 'generate-scene',
+              payload: { sceneId: 'scene-1', prompt: 'safe prompt' }
+            },
+            output: null,
+            error: null,
+            createdAt: new Date('2026-06-15T00:00:00.000Z'),
+            updatedAt: new Date('2026-06-15T00:00:00.000Z')
+          }
+        ]),
+        update: vi.fn()
+      }
+    };
+    const service = new QueueService(
+      { add } as never,
+      { add } as never,
+      { add } as never,
+      { add } as never,
+      { add } as never,
+      { add } as never,
+      { add } as never,
+      prisma as never
+    );
+
+    await expect(service.recoverQueuedJobs()).resolves.toBe(1);
+    expect(add).toHaveBeenCalledWith(
+      'generate-scene',
+      { sceneId: 'scene-1', prompt: 'safe prompt', generationJobId: 'job-1' },
+      expect.objectContaining({ jobId: 'job-1', attempts: 3 })
+    );
   });
 });

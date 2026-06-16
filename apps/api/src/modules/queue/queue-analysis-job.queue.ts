@@ -18,7 +18,8 @@ export class QueueAnalysisJobQueue implements AnalysisJobQueue {
       payload: {
         bookId: input.bookId,
         analysisId: input.bookAnalysisId,
-        projectId: input.projectId
+        projectId: input.projectId,
+        userId: input.userId
       }
     });
   }

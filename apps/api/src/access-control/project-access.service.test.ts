@@ -73,4 +73,21 @@ describe('ProjectAccessService', () => {
 
     await expect(service.assertCanAccessAsset('asset-1', 'user-1')).resolves.toBeUndefined();
   });
+
+  it('rejects assets owned by another project user', async () => {
+    const prisma = {
+      asset: {
+        findUnique: vi.fn().mockResolvedValue({
+          project: { userId: 'user-2' },
+          scene: null,
+          job: null
+        })
+      }
+    };
+    const service = new ProjectAccessService(prisma as unknown as PrismaService);
+
+    await expect(service.assertCanAccessAsset('asset-1', 'user-1')).rejects.toBeInstanceOf(
+      ForbiddenException
+    );
+  });
 });

@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from
 import { Reflector } from '@nestjs/core';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { AUTH_COOKIE_NAME, parseCookie } from './auth-cookie.js';
 import type { AuthenticatedRequest } from './auth.types.js';
 import { JwtTokenService } from './jwt-token.service.js';
 import { IS_PUBLIC_ROUTE_KEY } from './public.decorator.js';
@@ -25,14 +26,15 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
-    const token = getBearerToken(request.header('authorization'));
+    const token = getBearerToken(request.header('authorization')) ?? getCookieToken(request.header('cookie'));
     const payload = this.tokens.verify(token);
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: {
         id: true,
         email: true,
-        name: true
+        name: true,
+        role: true
       }
     });
 
@@ -46,16 +48,28 @@ export class JwtAuthGuard implements CanActivate {
   }
 }
 
-function getBearerToken(authorizationHeader: string | undefined): string {
+function getBearerToken(authorizationHeader: string | undefined): string | undefined {
   const bearerPrefix = 'Bearer ';
 
-  if (
-    authorizationHeader === undefined ||
-    !authorizationHeader.startsWith(bearerPrefix) ||
-    authorizationHeader.slice(bearerPrefix.length).trim().length === 0
-  ) {
-    throw new UnauthorizedException('Bearer authentication token is required.');
+  if (authorizationHeader === undefined) {
+    return undefined;
   }
 
-  return authorizationHeader.slice(bearerPrefix.length).trim();
+  if (!authorizationHeader.startsWith(bearerPrefix)) {
+    throw new UnauthorizedException('Invalid authorization header.');
+  }
+
+  const token = authorizationHeader.slice(bearerPrefix.length).trim();
+
+  return token.length > 0 ? token : undefined;
+}
+
+function getCookieToken(cookieHeader: string | undefined): string {
+  const token = parseCookie(cookieHeader, AUTH_COOKIE_NAME);
+
+  if (token === undefined || token.trim().length === 0) {
+    throw new UnauthorizedException('Authentication token is required.');
+  }
+
+  return token.trim();
 }

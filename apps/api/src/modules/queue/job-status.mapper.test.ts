@@ -8,7 +8,7 @@ describe('mapGenerationJobToResponse', () => {
       mapGenerationJobToResponse({
         id: 'job-1',
         projectId: 'project-1',
-        userId: null,
+        userId: 'user-1',
         sceneId: null,
         bookAnalysisId: 'analysis-1',
         visualStyleId: null,
@@ -27,7 +27,7 @@ describe('mapGenerationJobToResponse', () => {
     ).toEqual({
       id: 'job-1',
       projectId: 'project-1',
-      userId: null,
+      userId: 'user-1',
       sceneId: null,
       bookAnalysisId: 'analysis-1',
       queueName: 'book-analysis',

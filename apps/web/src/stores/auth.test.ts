@@ -7,16 +7,20 @@ import { useAuthStore } from './auth';
 const authClientMock = vi.hoisted(() => ({
   login: vi.fn(),
   register: vi.fn(),
-  me: vi.fn()
+  me: vi.fn(),
+  logout: vi.fn()
 }));
 
 const authTokenProviderMock = vi.hoisted(() => ({
-  getToken: () => localStorage.getItem('abi.auth.accessToken'),
+  token: null as string | null,
+  getToken() {
+    return this.token;
+  },
   setToken: (token: string) => {
-    localStorage.setItem('abi.auth.accessToken', token);
+    authTokenProviderMock.token = token;
   },
   clearToken: () => {
-    localStorage.removeItem('abi.auth.accessToken');
+    authTokenProviderMock.token = null;
   }
 }));
 
@@ -31,6 +35,7 @@ describe('auth store', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     localStorage.clear();
+    authTokenProviderMock.token = null;
     vi.clearAllMocks();
   });
 
@@ -39,7 +44,7 @@ describe('auth store', () => {
       accessToken: 'jwt-token',
       tokenType: 'Bearer',
       expiresInSeconds: 3600,
-      user: { id: 'user-1', email: 'reader@example.com', name: 'Reader' }
+      user: { id: 'user-1', email: 'reader@example.com', name: 'Reader', role: 'USER' }
     });
 
     const store = useAuthStore();
@@ -47,18 +52,19 @@ describe('auth store', () => {
 
     expect(store.isAuthenticated).toBe(true);
     expect(store.user?.email).toBe('reader@example.com');
-    expect(authTokenProvider.getToken()).toBe('jwt-token');
+    expect(authTokenProvider.getToken()).toBeNull();
+    expect(localStorage.getItem('abi.auth.accessToken')).toBeNull();
   });
 
-  it('clears session on logout', () => {
-    localStorage.setItem('abi.auth.accessToken', 'jwt-token');
+  it('clears session on logout', async () => {
+    authClientMock.logout.mockResolvedValue(undefined);
     localStorage.setItem(
       'abi.auth.user',
-      JSON.stringify({ id: 'user-1', email: 'reader@example.com', name: null })
+      JSON.stringify({ id: 'user-1', email: 'reader@example.com', name: null, role: 'USER' })
     );
 
     const store = useAuthStore();
-    store.logout();
+    await store.logout();
 
     expect(store.isAuthenticated).toBe(false);
     expect(authTokenProvider.getToken()).toBeNull();
