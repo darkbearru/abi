@@ -27,4 +27,18 @@ export class KnowledgeGraphController {
 
     return this.graphQuery.getProjectGraph(projectId);
   }
+
+  @Get('projects/:id/characters/:characterId/graph')
+  @RequireProjectAccess('project')
+  @UseGuards(ProjectAccessGuard)
+  @ApiOperation({ summary: 'Synchronize and read a character knowledge graph context.' })
+  @ApiOkResponse({ type: ProjectGraphResponseDto })
+  async getCharacterGraph(
+    @Param('id', new ParseUUIDPipe()) projectId: string,
+    @Param('characterId', new ParseUUIDPipe()) characterId: string
+  ): Promise<ProjectGraphResponseDto> {
+    await this.graphSync.syncProject(projectId);
+
+    return this.graphQuery.findCharacterContext(projectId, characterId);
+  }
 }

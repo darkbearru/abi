@@ -37,6 +37,9 @@ export interface BuiltCharacterVisualPassportPrompt {
   readonly negativePrompt: string;
 }
 
+const CHARACTER_PROMPT_BEGIN =
+  'Create a single high-resolution, the character must be identical across every panel. Editorial animation-reference layout with a white background, thin yellow neon accent light, faint film-grain overlay, and studio reference UI. ';
+
 const ASSET_TYPE_INSTRUCTIONS: Record<CharacterVisualPassportAssetTypeDto, string> = {
   [CharacterVisualPassportAssetTypeDto.FRONT_VIEW]:
     'full body front view, neutral standing pose, symmetrical readable silhouette, plain background',
@@ -79,7 +82,7 @@ export class PromptBuilderService {
       `Style language: ${style.prompt}`,
       buildStyleControls(style),
       `Seed: ${String(input.seed)}`,
-      'Maintain exact character identity across all generated passport assets.',
+      CHARACTER_PROMPT_BEGIN,
       'Use a clean reference-sheet composition suitable as future scene generation reference.'
     ].filter((part): part is string => Boolean(part));
 

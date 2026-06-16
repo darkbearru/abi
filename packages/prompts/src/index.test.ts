@@ -4,6 +4,7 @@ import {
   CHARACTER_FACT_EXTRACTION_PROMPT_ID,
   DEFAULT_PROMPT_TEMPLATES,
   LOCATION_FACT_EXTRACTION_PROMPT_ID,
+  OBJECT_FACT_EXTRACTION_PROMPT_ID,
   PromptRegistryService,
   PromptTemplateNotFoundError,
   renderPromptTemplate,
@@ -33,10 +34,13 @@ describe('PromptRegistryService', () => {
     const registry = new PromptRegistryService(DEFAULT_PROMPT_TEMPLATES);
 
     expect(registry.get(CHARACTER_FACT_EXTRACTION_PROMPT_ID, '1.0.0').template).toContain(
-      'candidate aliases'
+      'entityName MUST be that exact name'
     );
     expect(registry.get(LOCATION_FACT_EXTRACTION_PROMPT_ID, '1.0.0').template).toContain(
-      'City -> Park -> Fountain'
+      'Country -> City -> Street'
+    );
+    expect(registry.get(OBJECT_FACT_EXTRACTION_PROMPT_ID, '1.0.0').template).toContain(
+      'not a character and not a location'
     );
     expect(registry.get(TIMELINE_FACT_EXTRACTION_PROMPT_ID, '1.0.0').template).toContain(
       'the next day'

@@ -36,6 +36,16 @@ describe('GraphSyncService', () => {
     expect(cypher).toContain('MERGE (from)-[relationship:BEFORE]->(to)');
     expect(params.some((param) => JSON.stringify(param).includes('Mara'))).toBe(true);
     expect(params.some((param) => JSON.stringify(param).includes('Old Square'))).toBe(true);
+
+    const characterVersionStatement = statements.find((statement) =>
+      JSON.stringify(statement.params).includes('character-version-1')
+    );
+    const characterVersionProps = characterVersionStatement?.params.props as
+      | Record<string, unknown>
+      | undefined;
+
+    expect(characterVersionProps?.appearance).toBe(JSON.stringify({ hair: 'black' }));
+    expect(characterVersionProps?.timelineRange).toBe(JSON.stringify({ phase: 'main' }));
   });
 });
 

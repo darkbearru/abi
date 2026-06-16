@@ -1,4 +1,4 @@
-import type { GenerationJob, Prisma } from '@prisma/client';
+import { Prisma, type GenerationJob } from '@prisma/client';
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { Queue } from 'bullmq';
@@ -15,6 +15,11 @@ import type { CreateQueueJobInput, QueueJobResponse } from './queue.types.js';
 
 type QueueRegistry = Record<QueueName, Queue>;
 const DEFAULT_RECOVERY_LIMIT = 100;
+const TERMINAL_JOB_STATUSES = new Set<GenerationJob['status']>([
+  'COMPLETED',
+  'FAILED',
+  'CANCELLED'
+]);
 
 @Injectable()
 export class QueueService implements OnModuleInit {
@@ -77,6 +82,14 @@ export class QueueService implements OnModuleInit {
     });
 
     try {
+      if (shouldPruneAnalysisJobHistory(input.queueName, input.bookAnalysisId)) {
+        await pruneAnalysisJobHistory(
+          this.prisma,
+          generationJob.id,
+          input.bookAnalysisId,
+          input.queueName
+        );
+      }
       await this.queues[input.queueName].add(
         input.name,
         {
@@ -135,6 +148,40 @@ export class QueueService implements OnModuleInit {
     });
 
     return jobs.map(mapGenerationJobToResponse);
+  }
+
+  async cancelJob(jobId: string): Promise<QueueJobResponse> {
+    const job = await this.prisma.generationJob.findUnique({ where: { id: jobId } });
+
+    if (!job) {
+      throw new NotFoundException(`Job "${jobId}" was not found.`);
+    }
+
+    if (TERMINAL_JOB_STATUSES.has(job.status)) {
+      return mapGenerationJobToResponse(job);
+    }
+
+    const input = toJsonObject(job.input);
+    const queueName = toQueueName(input?.queueName);
+
+    if (queueName !== undefined) {
+      const bullJob = await this.queues[queueName].getJob(job.id);
+      await bullJob?.remove().catch(() => undefined);
+    }
+
+    const cancelled = await this.prisma.generationJob.update({
+      where: { id: job.id },
+      data: {
+        status: 'CANCELLED',
+        error: Prisma.JsonNull,
+        output: {
+          ...(toJsonObject(job.output) ?? {}),
+          cancelledAt: new Date().toISOString()
+        }
+      }
+    });
+
+    return mapGenerationJobToResponse(cancelled);
   }
 
   getQueueNames(): readonly QueueName[] {
@@ -228,6 +275,41 @@ export class QueueService implements OnModuleInit {
       }
     });
   }
+}
+
+async function pruneAnalysisJobHistory(
+  prisma: PrismaService,
+  currentJobId: string,
+  bookAnalysisId: string,
+  queueName: QueueName
+): Promise<void> {
+  const jobs = await prisma.generationJob.findMany({
+    where: { bookAnalysisId },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, input: true }
+  });
+  const staleJobIds = jobs
+    .filter((job) => job.id !== currentJobId)
+    .filter((job) => toQueueName(toJsonObject(job.input)?.queueName) === queueName)
+    .map((job) => job.id);
+
+  if (staleJobIds.length === 0) {
+    return;
+  }
+
+  await prisma.generationJob.deleteMany({
+    where: { id: { in: staleJobIds } }
+  });
+}
+
+function shouldPruneAnalysisJobHistory(
+  queueName: QueueName,
+  bookAnalysisId: string | undefined
+): bookAnalysisId is string {
+  return (
+    bookAnalysisId !== undefined &&
+    (queueName === 'book-analysis' || queueName === 'chunk-extraction')
+  );
 }
 
 function redactQueuePayload(payload: Record<string, unknown>): Prisma.InputJsonObject {

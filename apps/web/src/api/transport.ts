@@ -28,7 +28,7 @@ export class ApiTransport {
 
   constructor(options: TransportOptions = {}) {
     this.baseUrl = options.baseUrl ?? getApiBaseUrl();
-    this.fetcher = options.fetcher ?? fetch;
+    this.fetcher = options.fetcher ?? globalThis.fetch.bind(globalThis);
     this.tokenProvider = options.tokenProvider ?? authTokenProvider;
     this.retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   }

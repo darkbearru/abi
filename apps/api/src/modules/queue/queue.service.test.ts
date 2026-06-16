@@ -293,4 +293,74 @@ describe('QueueService', () => {
       expect.objectContaining({ jobId: 'job-1', attempts: 3 })
     );
   });
+
+  it('cancels a non-terminal tracked job', async () => {
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const prisma = {
+      generationJob: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'job-1',
+          projectId: 'project-1',
+          userId: 'user-1',
+          sceneId: null,
+          bookAnalysisId: 'analysis-1',
+          status: 'PROCESSING',
+          progress: 25,
+          input: {
+            queueName: 'chunk-extraction',
+            name: 'extract-analysis-chunks'
+          },
+          output: null,
+          error: { message: 'old transient error' },
+          createdAt: new Date('2026-06-15T00:00:00.000Z'),
+          updatedAt: new Date('2026-06-15T00:00:00.000Z')
+        }),
+        update: vi.fn().mockResolvedValue({
+          id: 'job-1',
+          projectId: 'project-1',
+          userId: 'user-1',
+          sceneId: null,
+          bookAnalysisId: 'analysis-1',
+          status: 'CANCELLED',
+          progress: 25,
+          input: {
+            queueName: 'chunk-extraction',
+            name: 'extract-analysis-chunks'
+          },
+          output: { cancelledAt: '2026-06-15T00:00:00.000Z' },
+          error: null,
+          createdAt: new Date('2026-06-15T00:00:00.000Z'),
+          updatedAt: new Date('2026-06-15T00:00:00.000Z')
+        })
+      }
+    };
+    const chunkQueue = {
+      add: vi.fn(),
+      getJob: vi.fn().mockResolvedValue({ remove })
+    };
+    const service = new QueueService(
+      { add: vi.fn() } as never,
+      chunkQueue as never,
+      { add: vi.fn() } as never,
+      { add: vi.fn() } as never,
+      { add: vi.fn() } as never,
+      { add: vi.fn() } as never,
+      { add: vi.fn() } as never,
+      prisma as never
+    );
+
+    await expect(service.cancelJob('job-1')).resolves.toMatchObject({
+      id: 'job-1',
+      status: 'CANCELLED',
+      error: null
+    });
+    expect(chunkQueue.getJob).toHaveBeenCalledWith('job-1');
+    expect(remove).toHaveBeenCalledOnce();
+    const updatePayload = prisma.generationJob.update.mock.calls[0]?.[0] as
+      | { readonly where?: { readonly id?: string }; readonly data?: { readonly status?: string } }
+      | undefined;
+
+    expect(updatePayload?.where?.id).toBe('job-1');
+    expect(updatePayload?.data?.status).toBe('CANCELLED');
+  });
 });

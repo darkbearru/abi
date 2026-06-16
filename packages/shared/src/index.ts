@@ -8,6 +8,7 @@ export type AsyncStatus = 'idle' | 'loading' | 'success' | 'error';
 export interface ProjectSummary {
   readonly id: string;
   readonly name: string;
+  readonly visualStyleId?: string | null;
   readonly bookTitle?: string | null;
   readonly seriesTitle?: string | null;
   readonly updatedAt?: string | null;
@@ -87,6 +88,14 @@ export interface Location {
   readonly versions: readonly LocationVersion[];
 }
 
+export interface WorldObject {
+  readonly id: string;
+  readonly name: string;
+  readonly description?: string | null;
+  readonly visualPrompt?: string | null;
+  readonly metadata?: unknown;
+}
+
 export interface TimelineEvent {
   readonly id: string;
   readonly title: string;
@@ -119,22 +128,34 @@ export interface Asset {
   readonly id: string;
   readonly localPath: string;
   readonly mimeType: string;
+  readonly type?: string | null;
   readonly prompt?: string | null;
   readonly entityType?: string | null;
   readonly entityId?: string | null;
   readonly approvalStatus?: string | null;
+  readonly metadata?: unknown;
 }
 
 export interface GenerationJob {
   readonly id: string;
+  readonly queueName?: string;
+  readonly name?: string;
   readonly status: 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
   readonly progress: number;
+  readonly projectId?: string | null;
+  readonly userId?: string | null;
+  readonly sceneId?: string | null;
+  readonly bookAnalysisId?: string | null;
+  readonly input?: unknown;
+  readonly output?: unknown;
   readonly error?: unknown;
+  readonly createdAt?: string;
+  readonly updatedAt?: string;
 }
 
 export interface SceneGenerationRequest {
   readonly text: string;
-  readonly styleId: string;
+  readonly styleId?: string;
   readonly timelineHint?: string;
   readonly aspectRatio?: string;
 }

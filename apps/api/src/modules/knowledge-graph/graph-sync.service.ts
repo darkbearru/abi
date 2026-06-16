@@ -620,14 +620,27 @@ function toGraphValue(value: unknown): GraphValue {
   }
 
   if (Array.isArray(value)) {
-    return value.map(toGraphValue);
+    return value.map((item) => {
+      const graphValue = toGraphValue(item);
+
+      return isGraphPrimitive(graphValue) ? graphValue : JSON.stringify(graphValue);
+    });
   }
 
   if (typeof value === 'object') {
-    return toGraphMap(value as Record<string, unknown>);
+    return JSON.stringify(toGraphMap(value as Record<string, unknown>));
   }
 
   return JSON.stringify(value);
+}
+
+function isGraphPrimitive(value: GraphValue): value is string | number | boolean | null {
+  return (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    value === null
+  );
 }
 
 function asPlainObject(value: Prisma.JsonValue): Record<string, unknown> {

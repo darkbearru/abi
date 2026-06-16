@@ -1,9 +1,12 @@
 import { WorkerHost } from '@nestjs/bullmq';
-import type { Prisma } from '@prisma/client';
+import { AiSchemaValidationError } from '@abi/ai-core';
+import { Prisma } from '@prisma/client';
 import type { Job } from 'bullmq';
 
 import type { PrismaService } from '../../prisma/prisma.service.js';
 import type { QueueName } from './queue.constants.js';
+
+const JOB_HEARTBEAT_MS = Number(process.env.JOB_HEARTBEAT_MS ?? 5000);
 
 export abstract class TrackedQueueProcessor extends WorkerHost {
   protected constructor(
@@ -20,27 +23,53 @@ export abstract class TrackedQueueProcessor extends WorkerHost {
       where: { id: generationJobId },
       data: {
         status: 'PROCESSING',
-        progress: 10
+        progress: 10,
+        error: Prisma.JsonNull
       }
     });
     await job.updateProgress(10);
 
-    const output = await this.handle(job);
+    const heartbeat = this.startHeartbeat(generationJobId);
 
-    await job.updateProgress(100);
-    await this.prisma.generationJob.update({
-      where: { id: generationJobId },
-      data: {
-        status: 'COMPLETED',
-        progress: 100,
-        output: {
-          queueName: this.queueName,
-          bullJobId: String(job.id),
-          completedAt: new Date().toISOString(),
-          ...(output ?? {})
-        } satisfies Prisma.InputJsonObject
+    try {
+      const output = await this.handle(job);
+
+      await job.updateProgress(100);
+      await this.prisma.generationJob.update({
+        where: { id: generationJobId },
+        data: {
+          status: 'COMPLETED',
+          progress: 100,
+          error: Prisma.JsonNull,
+          output: {
+            queueName: this.queueName,
+            bullJobId: String(job.id),
+            completedAt: new Date().toISOString(),
+            ...(output ?? {})
+          } satisfies Prisma.InputJsonObject
+        }
+      });
+    } catch (error) {
+      if (error instanceof QueueJobCancelledError) {
+        await this.prisma.generationJob.update({
+          where: { id: generationJobId },
+          data: {
+            status: 'CANCELLED',
+            output: {
+              queueName: this.queueName,
+              bullJobId: String(job.id),
+              cancelledAt: new Date().toISOString()
+            } satisfies Prisma.InputJsonObject
+          }
+        });
+
+        return;
       }
-    });
+
+      throw error;
+    } finally {
+      clearInterval(heartbeat);
+    }
   }
 
   protected async handle(
@@ -74,11 +103,61 @@ export abstract class TrackedQueueProcessor extends WorkerHost {
           attemptsMade: job.attemptsMade,
           attempts,
           deadLetter,
-          message: error.message
+          message: error.message,
+          ...serializeErrorDetails(error)
         }
       }
     });
   }
+
+  private startHeartbeat(generationJobId: string): NodeJS.Timeout {
+    return setInterval(() => {
+      void this.prisma.generationJob
+        .updateMany({
+          where: {
+            id: generationJobId,
+            status: { not: 'CANCELLED' }
+          },
+          data: { status: 'PROCESSING' }
+        })
+        .catch(() => undefined);
+    }, JOB_HEARTBEAT_MS);
+  }
+}
+
+export class QueueJobCancelledError extends Error {
+  constructor(generationJobId: string) {
+    super(`Queue job "${generationJobId}" was cancelled.`);
+    this.name = 'QueueJobCancelledError';
+  }
+}
+
+export async function assertQueueJobNotCancelled(
+  prisma: PrismaService,
+  generationJobId: string
+): Promise<void> {
+  const job = await prisma.generationJob.findUnique({
+    where: { id: generationJobId },
+    select: { status: true }
+  });
+
+  if (job?.status === 'CANCELLED') {
+    throw new QueueJobCancelledError(generationJobId);
+  }
+}
+
+function serializeErrorDetails(error: Error): Prisma.InputJsonObject {
+  if (error instanceof AiSchemaValidationError) {
+    return {
+      issues: error.issues.map((issue) => ({
+        path: issue.path.map(String),
+        code: issue.code,
+        message: issue.message
+      }))
+    };
+  }
+
+  return {};
 }
 
 function getGenerationJobId(job: Job<Record<string, unknown>>): string {

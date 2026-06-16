@@ -18,9 +18,11 @@ const authTokenProviderMock = vi.hoisted(() => ({
   },
   setToken: (token: string) => {
     authTokenProviderMock.token = token;
+    localStorage.setItem('abi.auth.accessToken', token);
   },
   clearToken: () => {
     authTokenProviderMock.token = null;
+    localStorage.removeItem('abi.auth.accessToken');
   }
 }));
 
@@ -52,8 +54,8 @@ describe('auth store', () => {
 
     expect(store.isAuthenticated).toBe(true);
     expect(store.user?.email).toBe('reader@example.com');
-    expect(authTokenProvider.getToken()).toBeNull();
-    expect(localStorage.getItem('abi.auth.accessToken')).toBeNull();
+    expect(authTokenProvider.getToken()).toBe('jwt-token');
+    expect(localStorage.getItem('abi.auth.accessToken')).toBe('jwt-token');
   });
 
   it('clears session on logout', async () => {
@@ -68,6 +70,7 @@ describe('auth store', () => {
 
     expect(store.isAuthenticated).toBe(false);
     expect(authTokenProvider.getToken()).toBeNull();
+    expect(localStorage.getItem('abi.auth.accessToken')).toBeNull();
     expect(localStorage.getItem('abi.auth.user')).toBeNull();
   });
 });

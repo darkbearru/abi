@@ -107,6 +107,15 @@ enum ExtractedFactType {
   LOCATION_RECURRING_OBJECT
   LOCATION_CHANGE
   LOCATION_CANDIDATE
+  OBJECT_MENTION
+  OBJECT_ALIAS
+  OBJECT_APPEARANCE
+  OBJECT_FUNCTION
+  OBJECT_OWNER
+  OBJECT_LOCATION
+  OBJECT_SYMBOLISM
+  OBJECT_CHANGE
+  OBJECT_CANDIDATE
   TIMELINE_EVENT
   TIMELINE_MARKER
   TIMELINE_CHARACTER_PERIOD
@@ -242,6 +251,8 @@ model UserBookProject {
   bookAnalysis   BookAnalysis?         @relation(fields: [bookAnalysisId], references: [id], onDelete: SetNull)
   seriesId       String?               @db.Uuid
   series         BookSeries?           @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  visualStyleId  String?               @db.Uuid
+  visualStyle    VisualStyle?          @relation(fields: [visualStyleId], references: [id], onDelete: SetNull)
   name           String
   books          UserBookProjectBook[]
   worldBible     WorldBible?
@@ -255,6 +266,7 @@ model UserBookProject {
   @@index([bookId])
   @@index([bookAnalysisId])
   @@index([seriesId])
+  @@index([visualStyleId])
 }
 
 model UserBookProjectBook {
@@ -584,6 +596,7 @@ model VisualStyle {
   isDefault       Boolean         @default(false)
   scenes          Scene[]
   jobs            GenerationJob[]
+  projects        UserBookProject[]
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 }

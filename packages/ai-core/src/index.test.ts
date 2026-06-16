@@ -119,6 +119,46 @@ describe('OpenAiTextProvider', () => {
     ).rejects.toThrow(AiInvalidJsonError);
   });
 
+  it('extracts structured JSON from provider responses with surrounding text', async () => {
+    const httpClient = createHttpClient([
+      { output_text: 'Here is the JSON:\n{"title":"Book"}\nDone.' }
+    ]);
+    const provider = new OpenAiTextProvider(httpClient, {
+      logger: new TestLogger(),
+      retryPolicy: {
+        maxAttempts: 1,
+        initialDelayMs: 0
+      }
+    });
+
+    await expect(
+      provider.extractStructuredData({
+        prompt: 'extract',
+        schema: z.object({ title: z.string() })
+      })
+    ).resolves.toEqual({ title: 'Book' });
+  });
+
+  it('extracts structured JSON arrays from fenced provider responses', async () => {
+    const httpClient = createHttpClient([
+      { output_text: '```json\n[{"title":"One"},{"title":"Two"}]\n```' }
+    ]);
+    const provider = new OpenAiTextProvider(httpClient, {
+      logger: new TestLogger(),
+      retryPolicy: {
+        maxAttempts: 1,
+        initialDelayMs: 0
+      }
+    });
+
+    await expect(
+      provider.extractStructuredData({
+        prompt: 'extract',
+        schema: z.array(z.object({ title: z.string() }))
+      })
+    ).resolves.toEqual([{ title: 'One' }, { title: 'Two' }]);
+  });
+
   it('validates structured JSON through zod', async () => {
     const httpClient = createHttpClient([{ output_text: '{"title":123}' }]);
     const provider = new OpenAiTextProvider(httpClient, {

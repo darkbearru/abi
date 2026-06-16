@@ -11,6 +11,7 @@ COPY packages/ai-core/package.json packages/ai-core/package.json
 COPY packages/storage/package.json packages/storage/package.json
 COPY packages/prompts/package.json packages/prompts/package.json
 COPY packages/validation/package.json packages/validation/package.json
+COPY packages/book-parser/package.json packages/book-parser/package.json
 
 RUN npm ci
 
@@ -23,6 +24,7 @@ RUN npm run build -w @abi/shared \
   && npm run build -w @abi/storage \
   && npm run build -w @abi/prompts \
   && npm run build -w @abi/validation \
+  && npm run build -w @abi/book-parser \
   && npm run build -w @abi/api
 
 FROM node:20-alpine AS runtime

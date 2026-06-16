@@ -4,9 +4,11 @@ import { RouterLink, RouterView, useRouter } from 'vue-router';
 
 import { useAuthStore } from '../stores/auth';
 import { useProjectsStore } from '../stores/projects';
+import { useStylesStore } from '../stores/styles';
 
 const projects = useProjectsStore();
 const auth = useAuthStore();
+const styles = useStylesStore();
 const router = useRouter();
 
 const navItems = [
@@ -16,6 +18,7 @@ const navItems = [
   { to: '/world-bible', label: 'World Bible' },
   { to: '/characters', label: 'Characters' },
   { to: '/locations', label: 'Locations' },
+  { to: '/objects', label: 'Objects' },
   { to: '/timeline', label: 'Timeline' },
   { to: '/graph', label: 'Graph' },
   { to: '/styles', label: 'Styles' },
@@ -24,12 +27,21 @@ const navItems = [
 ] as const;
 
 const activeProjectLabel = computed(() => projects.activeProject?.name ?? 'No project');
+const activeProjectStyleId = computed(() => projects.activeProject?.visualStyleId ?? '');
 
 function onProjectChange(event: Event): void {
   const target = event.target instanceof HTMLSelectElement ? event.target : null;
 
   if (target?.value) {
     projects.setActiveProject(target.value);
+  }
+}
+
+async function onStyleChange(event: Event): Promise<void> {
+  const target = event.target instanceof HTMLSelectElement ? event.target : null;
+
+  if (projects.activeProjectId && target) {
+    await projects.updateVisualStyle(projects.activeProjectId, target.value || null);
   }
 }
 
@@ -43,14 +55,22 @@ onMounted(() => {
   if (projects.status === 'idle') {
     void projects.loadProjects();
   }
+
+  if (styles.status === 'idle') {
+    void styles.loadStyles();
+  }
 });
 </script>
 
 <template>
   <div class="min-h-screen bg-slate-50 text-slate-950">
-    <aside class="fixed inset-y-0 left-0 hidden w-64 border-r border-slate-200 bg-white px-4 py-5 lg:block">
+    <aside
+      class="fixed inset-y-0 left-0 hidden w-64 border-r border-slate-200 bg-white px-4 py-5 lg:block"
+    >
       <div class="mb-6">
-        <p class="text-sm font-semibold uppercase tracking-wide text-slate-500">AI Book Illustrator</p>
+        <p class="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          AI Book Illustrator
+        </p>
         <p class="mt-2 truncate text-lg font-semibold">{{ activeProjectLabel }}</p>
       </div>
 
@@ -68,7 +88,9 @@ onMounted(() => {
     </aside>
 
     <div class="lg:pl-64">
-      <header class="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+      <header
+        class="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur"
+      >
         <div class="flex items-center justify-between gap-4">
           <div>
             <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Workspace</p>
@@ -84,7 +106,22 @@ onMounted(() => {
               {{ project.name }}
             </option>
           </select>
-          <button class="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium" type="button" @click="logout">
+          <select
+            class="w-56 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+            :disabled="!projects.activeProjectId || styles.status === 'loading'"
+            :value="activeProjectStyleId"
+            @change="onStyleChange"
+          >
+            <option value="">Default style</option>
+            <option v-for="style in styles.styles" :key="style.id" :value="style.id">
+              {{ style.name }}
+            </option>
+          </select>
+          <button
+            class="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium"
+            type="button"
+            @click="logout"
+          >
             Sign out
           </button>
         </div>

@@ -12,6 +12,7 @@ import {
 } from './character-extraction.config.js';
 import {
   CharacterExtractionResponseSchema,
+  type CharacterExtractionResponse,
   type ExtractedCharacterFact
 } from './character-extraction.schema.js';
 import type {
@@ -65,7 +66,7 @@ export class CharacterExtractionService {
       },
       this.config.promptVersion
     );
-    const extracted = await this.aiProviders.extractStructuredData(
+    const extracted = await this.aiProviders.extractStructuredData<CharacterExtractionResponse>(
       this.config.providerId,
       {
         prompt,
@@ -78,7 +79,7 @@ export class CharacterExtractionService {
         }
       }
     );
-    const facts = (extracted.facts ?? []).map((fact) =>
+    const facts = extracted.facts.map((fact) =>
       this.toCreateInput(input, chunk, fact)
     );
 

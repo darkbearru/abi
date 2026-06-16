@@ -1,20 +1,13 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
-
 import EntityCard from '../components/EntityCard.vue';
 import PageHeader from '../components/PageHeader.vue';
 import ResourceState from '../components/ResourceState.vue';
-import { useProjectsStore } from '../stores/projects';
+import { useActiveProjectEffect } from '../composables/useActiveProjectEffect';
 import { useWorldBibleStore } from '../stores/worldBible';
 
-const projects = useProjectsStore();
 const world = useWorldBibleStore();
 
-onMounted(() => {
-  if (projects.activeProjectId) {
-    void world.loadProjectWorld(projects.activeProjectId);
-  }
-});
+useActiveProjectEffect((projectId) => world.loadProjectWorld(projectId));
 </script>
 
 <template>

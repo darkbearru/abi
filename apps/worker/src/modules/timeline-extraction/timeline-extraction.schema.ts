@@ -1,5 +1,29 @@
 import { z } from 'zod';
 
+const OptionalTextSchema = z
+  .union([z.string(), z.number(), z.boolean(), z.null()])
+  .optional()
+  .transform(toOptionalText);
+const RequiredTextSchema = OptionalTextSchema.transform((value) => value ?? 'Unknown');
+const StringArraySchema = z
+  .preprocess(toStringArray, z.array(z.string().trim().min(1)))
+  .optional();
+const ConfidenceSchema = z
+  .preprocess(toConfidence, z.number().min(0).max(1))
+  .catch(0.5);
+const RelativeOrderHintSchema = z
+  .enum([
+    'before',
+    'after',
+    'same_time',
+    'childhood',
+    'next_day',
+    'year_later',
+    'unknown'
+  ])
+  .catch('unknown')
+  .optional();
+
 export const ExtractedTimelineFactTypeSchema = z.enum([
   'TIMELINE_EVENT',
   'TIMELINE_MARKER',
@@ -9,44 +33,103 @@ export const ExtractedTimelineFactTypeSchema = z.enum([
 
 export const ExtractedTimelineFactValueSchema = z
   .object({
-    title: z.string().trim().min(1),
-    description: z.string().trim().min(1).optional(),
-    absoluteDate: z.string().datetime({ offset: true }).optional(),
-    relativeMarker: z.string().trim().min(1).optional(),
-    relativeOrderHint: z
-      .enum([
-        'before',
-        'after',
-        'same_time',
-        'childhood',
-        'next_day',
-        'year_later',
-        'unknown'
-      ])
-      .optional(),
-    anchorEventTitle: z.string().trim().min(1).optional(),
-    characterNames: z.array(z.string().trim().min(1)).optional(),
-    locationNames: z.array(z.string().trim().min(1)).optional(),
-    periodName: z.string().trim().min(1).optional(),
-    candidateNames: z.array(z.string().trim().min(1)).optional()
+    title: RequiredTextSchema,
+    description: OptionalTextSchema,
+    absoluteDate: OptionalTextSchema,
+    relativeMarker: OptionalTextSchema,
+    relativeOrderHint: RelativeOrderHintSchema,
+    anchorEventTitle: OptionalTextSchema,
+    characterNames: StringArraySchema,
+    locationNames: StringArraySchema,
+    periodName: OptionalTextSchema,
+    candidateNames: StringArraySchema
   })
-  .strict();
+  .passthrough();
 
 export const ExtractedTimelineFactSchema = z
   .object({
     type: ExtractedTimelineFactTypeSchema,
-    entityName: z.string().trim().min(1),
+    entityName: RequiredTextSchema,
     value: ExtractedTimelineFactValueSchema,
-    confidence: z.number().min(0).max(1),
-    quote: z.string().trim().min(1).optional(),
-    timelineHint: z.string().trim().min(1).optional()
+    confidence: ConfidenceSchema,
+    quote: OptionalTextSchema,
+    timelineHint: OptionalTextSchema
   })
-  .strict();
+  .passthrough();
 
-export const TimelineExtractionResponseSchema = z
-  .object({
-    facts: z.array(ExtractedTimelineFactSchema).optional()
-  })
-  .strict();
+export const TimelineExtractionResponseSchema = z.preprocess(
+  toResponseObject,
+  z
+    .object({
+      facts: z
+        .array(z.unknown())
+        .optional()
+        .transform((facts) => parseFacts(facts ?? []))
+    })
+    .passthrough()
+);
 
 export type ExtractedTimelineFact = z.infer<typeof ExtractedTimelineFactSchema>;
+export type TimelineExtractionResponse = z.infer<typeof TimelineExtractionResponseSchema>;
+
+function parseFacts(facts: readonly unknown[]): ExtractedTimelineFact[] {
+  return facts.flatMap((fact) => {
+    const parsed = ExtractedTimelineFactSchema.safeParse(fact);
+
+    return parsed.success ? [parsed.data] : [];
+  });
+}
+
+function toResponseObject(value: unknown): unknown {
+  return Array.isArray(value) ? { facts: value } : value;
+}
+
+function toOptionalText(value: string | number | boolean | null | undefined): string | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+
+  const trimmed = String(value).trim();
+
+  return trimmed.length === 0 ? undefined : trimmed;
+}
+
+function toStringArray(value: unknown): string[] {
+  const values = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
+
+  return values
+    .filter((item): item is string | number | boolean => {
+      return ['string', 'number', 'boolean'].includes(typeof item);
+    })
+    .map((item) => String(item).trim())
+    .filter((item) => item.length > 0);
+}
+
+function toConfidence(value: unknown): number {
+  if (typeof value === 'number') {
+    return value > 1 && value <= 100 ? value / 100 : value;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    const numeric = Number(normalized);
+
+    if (!Number.isNaN(numeric)) {
+      return numeric > 1 && numeric <= 100 ? numeric / 100 : numeric;
+    }
+
+    if (normalized === 'high') {
+      return 0.85;
+    }
+
+    if (normalized === 'medium') {
+      return 0.6;
+    }
+
+    if (normalized === 'low') {
+      return 0.35;
+    }
+  }
+
+  return 0.5;
+}

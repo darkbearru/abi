@@ -9,6 +9,8 @@ import GalleryView from '../views/GalleryView.vue';
 import KnowledgeGraphView from '../views/KnowledgeGraphView.vue';
 import LocationDetailView from '../views/LocationDetailView.vue';
 import LocationsListView from '../views/LocationsListView.vue';
+import ObjectDetailView from '../views/ObjectDetailView.vue';
+import ObjectsListView from '../views/ObjectsListView.vue';
 import ProjectWorldBibleView from '../views/ProjectWorldBibleView.vue';
 import SceneGeneratorView from '../views/SceneGeneratorView.vue';
 import TimelineView from '../views/TimelineView.vue';
@@ -24,7 +26,12 @@ export const routes: readonly RouteRecordRaw[] = [
   { path: '/analysis', name: 'analysis', component: AnalysisProgressView },
   { path: '/world-bible', name: 'world-bible', component: ProjectWorldBibleView },
   { path: '/characters', name: 'characters', component: CharactersListView },
-  { path: '/characters/:id', name: 'character-detail', component: CharacterDetailView, props: true },
+  {
+    path: '/characters/:id',
+    name: 'character-detail',
+    component: CharacterDetailView,
+    props: true
+  },
   {
     path: '/characters/:id/visual-passport',
     name: 'character-passport',
@@ -33,6 +40,8 @@ export const routes: readonly RouteRecordRaw[] = [
   },
   { path: '/locations', name: 'locations', component: LocationsListView },
   { path: '/locations/:id', name: 'location-detail', component: LocationDetailView, props: true },
+  { path: '/objects', name: 'objects', component: ObjectsListView },
+  { path: '/objects/:id', name: 'object-detail', component: ObjectDetailView, props: true },
   { path: '/timeline', name: 'timeline', component: TimelineView },
   { path: '/graph', name: 'graph', component: KnowledgeGraphView },
   { path: '/styles', name: 'styles', component: VisualStylesView },

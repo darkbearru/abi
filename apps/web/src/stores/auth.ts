@@ -59,6 +59,7 @@ export const useAuthStore = defineStore('auth', {
 
       try {
         const response = await request();
+        authTokenProvider.setToken(response.accessToken);
         this.setUser(response.user);
         this.status = 'success';
       } catch (error) {

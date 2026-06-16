@@ -16,9 +16,10 @@ export class GenerateSceneDto {
   @MaxLength(4000)
   public readonly text!: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsUUID()
-  public readonly styleId!: string;
+  public readonly styleId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

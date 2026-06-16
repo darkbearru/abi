@@ -12,7 +12,8 @@ import {
 } from './timeline-extraction.config.js';
 import {
   TimelineExtractionResponseSchema,
-  type ExtractedTimelineFact
+  type ExtractedTimelineFact,
+  type TimelineExtractionResponse
 } from './timeline-extraction.schema.js';
 import type {
   SavedTimelineExtractedFact,
@@ -60,7 +61,7 @@ export class TimelineExtractionService {
       },
       this.config.promptVersion
     );
-    const extracted = await this.aiProviders.extractStructuredData(
+    const extracted = await this.aiProviders.extractStructuredData<TimelineExtractionResponse>(
       this.config.providerId,
       {
         prompt,
@@ -73,7 +74,7 @@ export class TimelineExtractionService {
         }
       }
     );
-    const facts = (extracted.facts ?? []).map((fact) =>
+    const facts = extracted.facts.map((fact) =>
       this.toCreateInput(input, chunk, fact)
     );
 

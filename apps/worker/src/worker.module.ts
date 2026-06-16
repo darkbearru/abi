@@ -8,6 +8,7 @@ import { Module } from '@nestjs/common';
 
 import { CharacterExtractionModule } from './modules/character-extraction/character-extraction.module.js';
 import { LocationExtractionModule } from './modules/location-extraction/location-extraction.module.js';
+import { ObjectExtractionModule } from './modules/object-extraction/object-extraction.module.js';
 import { TimelineExtractionModule } from './modules/timeline-extraction/timeline-extraction.module.js';
 import { QueueModule } from './modules/queue/queue.module.js';
 
@@ -17,7 +18,10 @@ import { QueueModule } from './modules/queue/queue.module.js';
       process.env.OPENAI_API_KEY
         ? {
             openAi: {
-              apiKey: process.env.OPENAI_API_KEY
+              apiKey: process.env.OPENAI_API_KEY,
+              text: {
+                timeoutMs: getPositiveInt(process.env.AI_TEXT_TIMEOUT_MS, 120_000)
+              }
             }
           }
         : {}
@@ -25,12 +29,13 @@ import { QueueModule } from './modules/queue/queue.module.js';
     BookParserModule,
     PromptsModule,
     StorageModule.register({
-      rootDir: process.env.LOCAL_STORAGE_PATH ?? process.env.STORAGE_ROOT ?? './storage'
+      rootDir: process.env.STORAGE_ROOT ?? './storage'
     }),
     ValidationModule,
     QueueModule,
     CharacterExtractionModule,
     LocationExtractionModule,
+    ObjectExtractionModule,
     TimelineExtractionModule,
     BullModule.forRoot({
       connection: {
@@ -40,3 +45,9 @@ import { QueueModule } from './modules/queue/queue.module.js';
   ]
 })
 export class WorkerModule {}
+
+function getPositiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}

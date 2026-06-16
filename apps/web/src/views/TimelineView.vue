@@ -1,23 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed } from 'vue';
 
 import PageHeader from '../components/PageHeader.vue';
 import ResourceState from '../components/ResourceState.vue';
-import { useProjectsStore } from '../stores/projects';
+import { useActiveProjectEffect } from '../composables/useActiveProjectEffect';
 import { useWorldBibleStore } from '../stores/worldBible';
 
-const projects = useProjectsStore();
 const world = useWorldBibleStore();
 
 const events = computed(() =>
   [...world.timeline].sort((first, second) => first.relativeOrder - second.relativeOrder)
 );
 
-onMounted(async () => {
-  if (projects.activeProjectId && world.status === 'idle') {
-    await world.loadProjectWorld(projects.activeProjectId);
-  }
-});
+useActiveProjectEffect((projectId) => world.loadProjectWorld(projectId));
 </script>
 
 <template>

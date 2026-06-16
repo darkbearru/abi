@@ -27,6 +27,13 @@ export const useProjectsStore = defineStore('projects', {
       this.activeProjectId = projectId;
       localStorage.setItem('abi.activeProjectId', projectId);
     },
+    async updateVisualStyle(projectId: string, visualStyleId: string | null): Promise<void> {
+      const updatedProject = await projectsClient.updateSettings(projectId, { visualStyleId });
+
+      this.projects = this.projects.map((project) =>
+        project.id === updatedProject.id ? updatedProject : project
+      );
+    },
     clearProjects(): void {
       this.activeProjectId = null;
       this.projects = [];
@@ -41,8 +48,17 @@ export const useProjectsStore = defineStore('projects', {
       try {
         this.projects = [...(await projectsClient.list())];
 
-        if (!this.activeProjectId && this.projects[0]) {
+        const activeProjectExists =
+          this.activeProjectId !== null &&
+          this.projects.some((project) => project.id === this.activeProjectId);
+
+        if (!activeProjectExists && this.projects[0]) {
           this.setActiveProject(this.projects[0].id);
+        }
+
+        if (this.projects.length === 0) {
+          this.activeProjectId = null;
+          localStorage.removeItem('abi.activeProjectId');
         }
 
         this.status = 'success';

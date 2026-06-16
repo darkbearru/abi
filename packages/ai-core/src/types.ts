@@ -1,4 +1,4 @@
-import type { ZodType } from 'zod';
+import type { ZodType, ZodTypeDef } from 'zod';
 
 export interface AiUsage {
   readonly inputTokens?: number;
@@ -47,7 +47,7 @@ export interface AiTextResponse {
 
 export interface AiStructuredRequest<T> extends AiExecutionOptions {
   readonly prompt: string;
-  readonly schema: ZodType<T>;
+  readonly schema: ZodType<T, ZodTypeDef, unknown>;
   readonly systemPrompt?: string;
   readonly model?: string;
   readonly temperature?: number;

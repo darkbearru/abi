@@ -26,11 +26,21 @@ export class Neo4jGraphAdapter implements KnowledgeGraphAdapter, OnModuleDestroy
       return;
     }
 
+    const schemaStatements = statements.filter(isSchemaStatement);
+    const dataStatements = statements.filter((statement) => !isSchemaStatement(statement));
     const session = this.driver.session();
 
     try {
+      for (const statement of schemaStatements) {
+        await session.run(statement.cypher, statement.params);
+      }
+
+      if (dataStatements.length === 0) {
+        return;
+      }
+
       await session.executeWrite(async (transaction) => {
-        for (const statement of statements) {
+        for (const statement of dataStatements) {
           await transaction.run(statement.cypher, statement.params);
         }
       });
@@ -61,4 +71,8 @@ export class Neo4jGraphAdapter implements KnowledgeGraphAdapter, OnModuleDestroy
   async onModuleDestroy(): Promise<void> {
     await this.driver.close();
   }
+}
+
+function isSchemaStatement(statement: GraphStatement): boolean {
+  return statement.cypher.trimStart().toUpperCase().startsWith('CREATE CONSTRAINT');
 }

@@ -3,17 +3,25 @@ import type {
   Character,
   Location,
   ProjectGraph,
-  TimelineEvent
+  TimelineEvent,
+  WorldObject
 } from '@abi/shared';
 import { defineStore } from 'pinia';
 
-import { charactersClient, locationsClient, projectsClient, timelineClient } from '../api';
+import {
+  charactersClient,
+  locationsClient,
+  objectsClient,
+  projectsClient,
+  timelineClient
+} from '../api';
 
 interface WorldBibleState {
   status: AsyncStatus;
   error: string | null;
   characters: Character[];
   locations: Location[];
+  objects: WorldObject[];
   timeline: TimelineEvent[];
   graph: ProjectGraph | null;
 }
@@ -24,6 +32,7 @@ export const useWorldBibleStore = defineStore('worldBible', {
     error: null,
     characters: [],
     locations: [],
+    objects: [],
     timeline: [],
     graph: null
   }),
@@ -33,14 +42,16 @@ export const useWorldBibleStore = defineStore('worldBible', {
       this.error = null;
 
       try {
-        const [characters, locations, timeline] = await Promise.all([
+        const [characters, locations, objects, timeline] = await Promise.all([
           charactersClient.list(projectId),
           locationsClient.list(projectId),
+          objectsClient.list(projectId),
           timelineClient.list(projectId)
         ]);
 
         this.characters = [...characters];
         this.locations = [...locations];
+        this.objects = [...objects];
         this.timeline = [...timeline];
         this.status = 'success';
       } catch (error) {

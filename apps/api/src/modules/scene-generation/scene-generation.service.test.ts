@@ -134,9 +134,78 @@ describe('SceneGenerationService', () => {
       })
     );
   });
+
+  it('does not block generation on create suggestions when known entities were resolved', async () => {
+    const resolution = createResolution({
+      createSuggestions: [{ mention: 'Michael', entityType: 'unknown' }]
+    });
+    const resolver = {
+      resolve: vi.fn().mockResolvedValue(resolution)
+    } as unknown as SceneEntityResolutionService;
+    const prisma = {
+      visualStyle: {
+        findUnique: vi.fn().mockResolvedValue(createVisualStyle())
+      },
+      asset: {
+        findMany: vi.fn().mockResolvedValue([
+          createReferenceAsset('asset-character-1', 'CHARACTER_VERSION', 'character-version-1'),
+          createReferenceAsset('asset-location-1', 'LOCATION_VERSION', 'location-version-1')
+        ])
+      },
+      scene: {
+        aggregate: vi.fn().mockResolvedValue({ _max: { orderIndex: null } }),
+        create: vi.fn().mockResolvedValue({
+          id: 'scene-1',
+          projectId: 'project-1',
+          title: 'John talks with Michael near the fountain.',
+          description: 'John talks with Michael near the fountain.',
+          status: 'GENERATING',
+          orderIndex: 0,
+          prompt: 'prompt',
+          characterId: 'character-1',
+          locationId: 'location-1',
+          visualStyleId: 'style-1',
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+          updatedAt: new Date('2026-01-01T00:00:00.000Z')
+        })
+      }
+    } as unknown as PrismaService;
+    const graph = {
+      findCharacterContext: vi.fn().mockResolvedValue({ nodes: [], relationships: [] }),
+      findLocationContext: vi.fn().mockResolvedValue({ nodes: [], relationships: [] })
+    } as unknown as GraphQueryService;
+    const createJob = vi.fn().mockResolvedValue({
+      id: 'job-1',
+      queueName: 'image-generation',
+      name: 'generate-scene',
+      status: 'QUEUED',
+      progress: 0
+    });
+    const service = new SceneGenerationService(
+      prisma,
+      resolver,
+      graph,
+      new ScenePromptBuilderService(),
+      { createJob } as unknown as QueueService
+    );
+
+    const response = await service.generate(
+      'project-1',
+      {
+        text: 'John talks with Michael near the fountain.',
+        styleId: 'style-1'
+      },
+      'user-1'
+    );
+
+    expect(response.status).toBe(SceneGenerationStatusDto.QUEUED);
+    expect(response.createSuggestions).toEqual([{ mention: 'Michael', entityType: 'unknown' }]);
+  });
 });
 
-function createResolution(): SceneEntityResolutionResult {
+function createResolution(
+  overrides: Partial<Pick<SceneEntityResolutionResult, 'createSuggestions'>> = {}
+): SceneEntityResolutionResult {
   return {
     worldBibleId: 'world-bible-1',
     candidates: [],
@@ -188,7 +257,8 @@ function createResolution(): SceneEntityResolutionResult {
         }
       }
     ],
-    objects: []
+    objects: [],
+    ...overrides
   };
 }
 

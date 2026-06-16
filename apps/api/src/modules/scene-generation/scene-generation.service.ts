@@ -53,8 +53,12 @@ export class SceneGenerationService {
     userId: string
   ): Promise<SceneGenerationResponseDto> {
     const resolution = await this.resolver.resolve(projectId, dto.text, dto.timelineHint);
+    const hasResolvedEntities =
+      resolution.characters.length > 0 ||
+      resolution.locations.length > 0 ||
+      resolution.objects.length > 0;
 
-    if (resolution.candidates.length > 0 || resolution.createSuggestions.length > 0) {
+    if (resolution.candidates.length > 0 || (!hasResolvedEntities && resolution.createSuggestions.length > 0)) {
       return {
         status: SceneGenerationStatusDto.NEEDS_RESOLUTION,
         candidates: resolution.candidates,
@@ -65,7 +69,7 @@ export class SceneGenerationService {
     }
 
     const [visualStyle, referenceResult, graphContext] = await Promise.all([
-      this.getVisualStyle(dto.styleId),
+      this.resolveVisualStyle(projectId, dto.styleId),
       this.getReferenceAssets(resolution),
       this.getGraphContext(projectId, resolution)
     ]);
@@ -74,7 +78,7 @@ export class SceneGenerationService {
       return {
         status: SceneGenerationStatusDto.MISSING_REFERENCES,
         candidates: [],
-        createSuggestions: [],
+        createSuggestions: resolution.createSuggestions,
         missingReferences: referenceResult.missingReferences,
         referenceAssets: referenceResult.assets.map(toReferenceAssetDto)
       };
@@ -92,7 +96,7 @@ export class SceneGenerationService {
       graphContext,
       referenceAssets: referenceResult.assets
     });
-    const scene = await this.createScene(projectId, dto, builtPrompt.prompt, resolution);
+    const scene = await this.createScene(projectId, dto, builtPrompt.prompt, visualStyle.id, resolution);
     const providerId = process.env.SCENE_IMAGE_PROVIDER ?? 'openai';
     const model = process.env.SCENE_IMAGE_MODEL;
     const size = process.env.SCENE_IMAGE_SIZE ?? '1024x1024';
@@ -132,10 +136,42 @@ export class SceneGenerationService {
       generationJobId: job.id,
       prompt: builtPrompt.prompt,
       candidates: [],
-      createSuggestions: [],
+      createSuggestions: resolution.createSuggestions,
       missingReferences: [],
       referenceAssets: referenceResult.assets.map(toReferenceAssetDto)
     };
+  }
+
+  private async resolveVisualStyle(
+    projectId: string,
+    explicitStyleId: string | undefined
+  ): Promise<Prisma.VisualStyleGetPayload<object>> {
+    if (explicitStyleId) {
+      return this.getVisualStyle(explicitStyleId);
+    }
+
+    const project = await this.prisma.userBookProject.findUnique({
+      where: { id: projectId },
+      select: { visualStyleId: true }
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project was not found.');
+    }
+
+    if (project.visualStyleId) {
+      return this.getVisualStyle(project.visualStyleId);
+    }
+
+    const fallbackStyle = await this.prisma.visualStyle.findFirst({
+      orderBy: [{ isDefault: 'desc' }, { name: 'asc' }]
+    });
+
+    if (!fallbackStyle) {
+      throw new NotFoundException('Visual style was not found.');
+    }
+
+    return fallbackStyle;
   }
 
   private async getVisualStyle(id: string): Promise<Prisma.VisualStyleGetPayload<object>> {
@@ -246,6 +282,7 @@ export class SceneGenerationService {
     projectId: string,
     dto: GenerateSceneDto,
     prompt: string,
+    visualStyleId: string,
     resolution: SceneEntityResolutionResult
   ): Promise<Scene> {
     const aggregate = await this.prisma.scene.aggregate({
@@ -261,7 +298,7 @@ export class SceneGenerationService {
         status: 'GENERATING',
         orderIndex: (aggregate._max.orderIndex ?? -1) + 1,
         prompt,
-        visualStyleId: dto.styleId,
+        visualStyleId,
         ...(resolution.characters[0] ? { characterId: resolution.characters[0].id } : {}),
         ...(resolution.locations[0] ? { locationId: resolution.locations[0].id } : {})
       }

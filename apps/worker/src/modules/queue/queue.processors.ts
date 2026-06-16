@@ -11,6 +11,7 @@ import { Queue, type Job } from 'bullmq';
 
 import { CharacterExtractionService } from '../character-extraction/character-extraction.service.js';
 import { LocationExtractionService } from '../location-extraction/location-extraction.service.js';
+import { ObjectExtractionService } from '../object-extraction/object-extraction.service.js';
 import { TimelineExtractionService } from '../timeline-extraction/timeline-extraction.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import {
@@ -19,7 +20,7 @@ import {
   type QueueName
 } from './queue.constants.js';
 import { createWorkerBookChunks } from './book-analysis-chunker.js';
-import { TrackedQueueProcessor } from './tracked-queue.processor.js';
+import { assertQueueJobNotCancelled, TrackedQueueProcessor } from './tracked-queue.processor.js';
 
 type QueueJob = Job<Record<string, unknown>>;
 
@@ -47,8 +48,12 @@ class BookAnalysisProcessor extends TrackedQueueProcessor {
 
     await this.prisma.bookAnalysis.update({
       where: { id: analysisId },
-      data: { status: 'PROCESSING' }
+      data: {
+        status: 'PROCESSING',
+        metadata: clearMetadataError(await getBookAnalysisMetadata(this.prisma, analysisId))
+      }
     });
+    await assertQueueJobNotCancelled(this.prisma, generationJobId);
 
     const sourceFile = await this.prisma.bookFile.findFirst({
       where: { bookId, kind: 'ORIGINAL' },
@@ -60,6 +65,7 @@ class BookAnalysisProcessor extends TrackedQueueProcessor {
     }
 
     const fileBytes = await readStream(this.storage.read(sourceFile.localPath));
+    await assertQueueJobNotCancelled(this.prisma, generationJobId);
     const parsed = await this.bookParser.parse(fileBytes, {
       filename: sourceFile.localPath,
       mimeType: sourceFile.mimeType
@@ -74,6 +80,7 @@ class BookAnalysisProcessor extends TrackedQueueProcessor {
     });
 
     await updateProgress(this.prisma, job, generationJobId, 45);
+    await assertQueueJobNotCancelled(this.prisma, generationJobId);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.bookChunk.deleteMany({
@@ -117,6 +124,7 @@ class BookAnalysisProcessor extends TrackedQueueProcessor {
     if (chunks.length === 0) {
       throw new Error(`Book analysis "${analysisId}" produced no chunks.`);
     }
+    await assertQueueJobNotCancelled(this.prisma, generationJobId);
 
     const extractionJob = await createTrackedJob({
       prisma: this.prisma,
@@ -158,6 +166,8 @@ class ChunkExtractionProcessor extends TrackedQueueProcessor {
     private readonly characters: CharacterExtractionService,
     @Inject(LocationExtractionService)
     private readonly locations: LocationExtractionService,
+    @Inject(ObjectExtractionService)
+    private readonly objects: ObjectExtractionService,
     @Inject(TimelineExtractionService)
     private readonly timeline: TimelineExtractionService,
     @InjectQueue('entity-merge')
@@ -183,22 +193,47 @@ class ChunkExtractionProcessor extends TrackedQueueProcessor {
         : [{ id: requestedChunkId }];
     let characterFactCount = 0;
     let locationFactCount = 0;
+    let objectFactCount = 0;
     let timelineFactCount = 0;
+
+    await this.prisma.bookAnalysis.update({
+      where: { id: analysisId },
+      data: {
+        status: 'PROCESSING',
+        metadata: clearMetadataError(await getBookAnalysisMetadata(this.prisma, analysisId))
+      }
+    });
 
     if (chunks.length === 0) {
       throw new Error(`No chunks found for book analysis "${analysisId}".`);
     }
 
+    const completedChunkIds = await getCompletedExtractionChunkIds(this.prisma, generationJobId);
+
     for (const [index, chunk] of chunks.entries()) {
+      await assertQueueJobNotCancelled(this.prisma, generationJobId);
+
+      if (completedChunkIds.has(chunk.id)) {
+        await updateProgress(
+          this.prisma,
+          job,
+          generationJobId,
+          Math.min(95, Math.round(((index + 1) / chunks.length) * 95))
+        );
+        continue;
+      }
+
       const input = { bookId, analysisId, chunkId: chunk.id };
-      const [characterFacts, locationFacts, timelineFacts] = await Promise.all([
+      const [characterFacts, locationFacts, objectFacts, timelineFacts] = await Promise.all([
         this.characters.processChunk(input),
         this.locations.processChunk(input),
+        this.objects.processChunk(input),
         this.timeline.processChunk(input)
       ]);
 
       characterFactCount += characterFacts.length;
       locationFactCount += locationFacts.length;
+      objectFactCount += objectFacts.length;
       timelineFactCount += timelineFacts.length;
 
       await updateProgress(
@@ -207,6 +242,8 @@ class ChunkExtractionProcessor extends TrackedQueueProcessor {
         generationJobId,
         Math.min(95, Math.round(((index + 1) / chunks.length) * 95))
       );
+      completedChunkIds.add(chunk.id);
+      await updateExtractionCheckpoint(this.prisma, generationJobId, completedChunkIds);
     }
 
     const mergeJob =
@@ -234,6 +271,7 @@ class ChunkExtractionProcessor extends TrackedQueueProcessor {
       chunkCount: chunks.length,
       characterFactCount,
       locationFactCount,
+      objectFactCount,
       timelineFactCount,
       ...(mergeJob === undefined ? {} : { mergeJobId: mergeJob.id })
     };
@@ -262,26 +300,34 @@ class EntityMergeProcessor extends TrackedQueueProcessor {
     const generationJobId = requireString(job.data.generationJobId, 'generationJobId');
     const analysisId = requireString(job.data.analysisId, 'analysisId');
     const projectId = requireString(job.data.projectId, 'projectId');
-    const userId = await requireProjectUserId(
-      this.prisma,
-      projectId,
-      getString(job.data.userId)
-    );
+    const userId = await requireProjectUserId(this.prisma, projectId, getString(job.data.userId));
     const factCount = await this.prisma.extractedFact.count({
       where: { bookAnalysisId: analysisId }
     });
     const worldBible = await ensureProjectWorldBible(this.prisma, projectId, analysisId);
 
-    await updateProgress(this.prisma, job, generationJobId, 45);
+    await updateProgress(this.prisma, job, generationJobId, 25);
+
+    const materialized = await materializeWorldBibleEntities(
+      this.prisma,
+      worldBible.id,
+      analysisId
+    );
+
+    await updateProgress(this.prisma, job, generationJobId, 65);
 
     await this.prisma.bookAnalysis.update({
       where: { id: analysisId },
       data: {
         status: 'COMPLETED',
-        metadata: mergeMetadata(await getBookAnalysisMetadata(this.prisma, analysisId), {
+        metadata: mergeSuccessfulMetadata(await getBookAnalysisMetadata(this.prisma, analysisId), {
           extractionFactCount: factCount,
           worldBibleId: worldBible.id,
-          mergeStatus: 'ORCHESTRATED'
+          mergeStatus: 'MATERIALIZED',
+          characterCount: materialized.characterCount,
+          locationCount: materialized.locationCount,
+          objectCount: materialized.objectCount,
+          timelineEventCount: materialized.timelineEventCount
         })
       }
     });
@@ -324,6 +370,7 @@ class EntityMergeProcessor extends TrackedQueueProcessor {
       analysisId,
       worldBibleId: worldBible.id,
       factCount,
+      ...materialized,
       vectorJobId: vectorJob.id,
       graphJobId: graphJob.id
     };
@@ -347,7 +394,10 @@ class VectorIndexingProcessor extends TrackedQueueProcessor {
     const projectId = requireString(job.data.projectId, 'projectId');
     const analysisId = getString(job.data.analysisId);
     const chunkCount = await this.prisma.bookChunk.count({
-      where: analysisId === undefined ? { bookAnalysis: { projects: { some: { id: projectId } } } } : { bookAnalysisId: analysisId }
+      where:
+        analysisId === undefined
+          ? { bookAnalysis: { projects: { some: { id: projectId } } } }
+          : { bookAnalysisId: analysisId }
     });
 
     await updateProgress(this.prisma, job, generationJobId, 100);
@@ -415,7 +465,8 @@ export class ImageGenerationProcessor extends TrackedQueueProcessor {
     const userId =
       getString(job.data.userId) ??
       (projectId === undefined ? undefined : await resolveProjectUserId(this.prisma, projectId));
-    const providerId = getString(job.data.providerId) ?? process.env.SCENE_IMAGE_PROVIDER ?? 'openai';
+    const providerId =
+      getString(job.data.providerId) ?? process.env.SCENE_IMAGE_PROVIDER ?? 'openai';
     const model = getString(job.data.model);
     const size = getString(job.data.size) ?? process.env.SCENE_IMAGE_SIZE ?? '1024x1024';
     const seed = getNumber(job.data.seed) ?? createSeed(sceneId);
@@ -596,6 +647,482 @@ async function updateProgress(
   });
 }
 
+async function getCompletedExtractionChunkIds(
+  prisma: PrismaService,
+  generationJobId: string
+): Promise<Set<string>> {
+  const generationJob = await prisma.generationJob.findUnique({
+    where: { id: generationJobId },
+    select: { output: true }
+  });
+  const output = toJsonRecord(generationJob?.output);
+  const checkpoint = toJsonRecord(output?.extractionCheckpoint);
+
+  return new Set(getStringArray(checkpoint?.completedChunkIds));
+}
+
+async function updateExtractionCheckpoint(
+  prisma: PrismaService,
+  generationJobId: string,
+  completedChunkIds: ReadonlySet<string>
+): Promise<void> {
+  const generationJob = await prisma.generationJob.findUnique({
+    where: { id: generationJobId },
+    select: { output: true }
+  });
+  const output = toJsonRecord(generationJob?.output) ?? {};
+
+  await prisma.generationJob.update({
+    where: { id: generationJobId },
+    data: {
+      output: toJsonObject({
+        ...output,
+        extractionCheckpoint: {
+          completedChunkIds: [...completedChunkIds]
+        }
+      })
+    }
+  });
+}
+
+async function materializeWorldBibleEntities(
+  prisma: PrismaService,
+  worldBibleId: string,
+  analysisId: string
+): Promise<{
+  readonly characterCount: number;
+  readonly locationCount: number;
+  readonly objectCount: number;
+  readonly timelineEventCount: number;
+}> {
+  const facts = await prisma.extractedFact.findMany({
+    where: { bookAnalysisId: analysisId },
+    orderBy: [{ chapterIndex: 'asc' }, { createdAt: 'asc' }]
+  });
+  const characterGroups = groupEntityFacts(
+    facts.filter((fact) => fact.type.startsWith('CHARACTER_')),
+    { preferCharacterNames: true }
+  );
+  const locationGroups = groupEntityFacts(
+    facts.filter((fact) => fact.type.startsWith('LOCATION_'))
+  );
+  const objectGroups = groupEntityFacts(facts.filter((fact) => fact.type.startsWith('OBJECT_')));
+  const timelineFacts = facts.filter((fact) => fact.type.startsWith('TIMELINE_'));
+  let characterCount = 0;
+  let locationCount = 0;
+  let objectCount = 0;
+  let timelineEventCount = 0;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.timelineEvent.deleteMany({ where: { worldBibleId } });
+    await tx.worldObject.deleteMany({ where: { worldBibleId } });
+    await tx.location.deleteMany({ where: { worldBibleId } });
+    await tx.character.deleteMany({ where: { worldBibleId } });
+
+    const characterIdByName = new Map<string, string>();
+    const locationIdByName = new Map<string, string>();
+
+    for (const group of characterGroups) {
+      const created = await tx.character.create({
+        data: {
+          worldBibleId,
+          canonicalName: group.name,
+          aliases: {
+            createMany: {
+              data: group.aliases.map((alias) => ({ alias })),
+              skipDuplicates: true
+            }
+          }
+        },
+        select: { id: true }
+      });
+      const age = pickSummary(group.facts, ['CHARACTER_AGE']);
+      const speechManner = pickSummary(group.facts, ['CHARACTER_SPEECH_MANNER']);
+
+      await tx.characterVersion.create({
+        data: {
+          characterId: created.id,
+          version: 1,
+          ...(age === undefined ? {} : { age }),
+          appearance: toInputJsonObject({
+            summary: pickSummary(group.facts, ['CHARACTER_APPEARANCE', 'CHARACTER_MENTION'])
+          }),
+          personality: toInputJsonObject({
+            summary: pickSummary(group.facts, ['CHARACTER_PERSONALITY'])
+          }),
+          ...(speechManner === undefined ? {} : { speechManner }),
+          clothing: toInputJsonObject({
+            summary: pickSummary(group.facts, ['CHARACTER_APPEARANCE'])
+          }),
+          timelineRange: toInputJsonObject({
+            hints: uniqueStrings(group.facts.map((fact) => fact.timelineHint))
+          }),
+          confidenceScore: averageConfidence(group.facts),
+          sourceFactIds: group.facts.map((fact) => fact.id)
+        }
+      });
+
+      characterCount += 1;
+      for (const name of [group.name, ...group.aliases]) {
+        characterIdByName.set(normalizeEntityName(name), created.id);
+      }
+    }
+
+    const locationParentNames = new Map<string, string>();
+
+    for (const group of locationGroups) {
+      const parentName = pickStringValue(group.facts, 'parentName');
+      const created = await tx.location.create({
+        data: {
+          worldBibleId,
+          name: group.name,
+          aliases: {
+            createMany: {
+              data: group.aliases.map((alias) => ({ alias })),
+              skipDuplicates: true
+            }
+          }
+        },
+        select: { id: true }
+      });
+      const era = pickStringValue(group.facts, 'era');
+
+      await tx.locationVersion.create({
+        data: {
+          locationId: created.id,
+          version: 1,
+          description:
+            pickSummary(group.facts, ['LOCATION_MENTION', 'LOCATION_ATMOSPHERE']) ?? group.name,
+          atmosphere: toInputJsonObject({
+            summary: pickStringValue(group.facts, 'atmosphere')
+          }),
+          palette: toInputJsonObject({
+            colors: uniqueStrings(
+              group.facts.flatMap((fact) => pickStringArrayValue(fact, 'colors'))
+            )
+          }),
+          ...(era === undefined ? {} : { era }),
+          socialContext: toInputJsonObject({
+            summary: pickStringValue(group.facts, 'socialContext')
+          }),
+          lightingRules: toInputJsonObject({
+            summary: pickStringValue(group.facts, 'lighting')
+          }),
+          architectureRules: toInputJsonObject({
+            summary: pickStringValue(group.facts, 'architecture')
+          }),
+          recurringObjects: toInputJsonObject({
+            items: uniqueStrings(
+              group.facts.flatMap((fact) => pickStringArrayValue(fact, 'recurringObjects'))
+            )
+          }),
+          referenceAssetIds: [],
+          confidenceScore: averageConfidence(group.facts),
+          sourceFactIds: group.facts.map((fact) => fact.id)
+        }
+      });
+
+      locationCount += 1;
+      if (parentName) {
+        locationParentNames.set(created.id, parentName);
+      }
+      for (const name of [group.name, ...group.aliases]) {
+        locationIdByName.set(normalizeEntityName(name), created.id);
+      }
+    }
+
+    for (const [locationId, parentName] of locationParentNames) {
+      const parentId = locationIdByName.get(normalizeEntityName(parentName));
+
+      if (parentId && parentId !== locationId) {
+        await tx.location.update({
+          where: { id: locationId },
+          data: { parentId }
+        });
+      }
+    }
+
+    for (const group of objectGroups) {
+      const description =
+        pickSummary(group.facts, [
+          'OBJECT_MENTION',
+          'OBJECT_APPEARANCE',
+          'OBJECT_FUNCTION',
+          'OBJECT_SYMBOLISM'
+        ]) ?? group.name;
+      const ownerName = pickStringValue(group.facts, 'ownerName');
+      const locationName = pickStringValue(group.facts, 'locationName');
+      const ownerCharacterId =
+        ownerName === undefined ? undefined : characterIdByName.get(normalizeEntityName(ownerName));
+      const locationId =
+        locationName === undefined
+          ? undefined
+          : locationIdByName.get(normalizeEntityName(locationName));
+      const appearance = pickStringValue(group.facts, 'appearance');
+      const objectFunction = pickStringValue(group.facts, 'function');
+      const symbolism = pickStringValue(group.facts, 'symbolism');
+      const change = pickStringValue(group.facts, 'change');
+
+      await tx.worldObject.create({
+        data: {
+          worldBibleId,
+          name: group.name,
+          description,
+          visualPrompt: buildObjectVisualPrompt(group.name, appearance, description),
+          metadata: toInputJsonObject({
+            aliases: group.aliases,
+            objectKind: pickStringValue(group.facts, 'objectKind'),
+            appearance,
+            function: objectFunction,
+            ownerName,
+            ownerCharacterId,
+            locationName,
+            locationId,
+            symbolism,
+            change,
+            timelineHints: uniqueStrings(group.facts.map((fact) => fact.timelineHint)),
+            confidenceScore: averageConfidence(group.facts),
+            sourceFactIds: group.facts.map((fact) => fact.id)
+          })
+        }
+      });
+
+      objectCount += 1;
+    }
+
+    const eventFacts = timelineFacts.filter((fact) => fact.type === 'TIMELINE_EVENT');
+
+    for (const [index, fact] of eventFacts.entries()) {
+      const value = toJsonRecord(fact.value) ?? {};
+      const characterIds = uniqueStrings(
+        pickStringArrayValue(fact, 'characterNames')
+          .map((name) => characterIdByName.get(normalizeEntityName(name)))
+          .filter((id): id is string => id !== undefined)
+      );
+      const locationIds = uniqueStrings(
+        pickStringArrayValue(fact, 'locationNames')
+          .map((name) => locationIdByName.get(normalizeEntityName(name)))
+          .filter((id): id is string => id !== undefined)
+      );
+      const description = getString(value.description);
+
+      await tx.timelineEvent.create({
+        data: {
+          worldBibleId,
+          title: getString(value.title) ?? fact.entityName,
+          ...(description === undefined ? {} : { description }),
+          chapterIndex: fact.chapterIndex,
+          relativeOrder: index,
+          orderIndex: index,
+          relativeMarkers: toInputJsonObject({
+            marker: getString(value.relativeMarker),
+            hint: getString(value.relativeOrderHint)
+          }),
+          involvedCharacterIds: characterIds,
+          involvedLocationIds: locationIds,
+          sourceChunkIds: [fact.sourceChunkId],
+          confidence: fact.confidence,
+          ...(characterIds[0] === undefined ? {} : { characterId: characterIds[0] }),
+          ...(locationIds[0] === undefined ? {} : { locationId: locationIds[0] })
+        }
+      });
+      timelineEventCount += 1;
+    }
+  });
+
+  return { characterCount, locationCount, objectCount, timelineEventCount };
+}
+
+function groupEntityFacts(
+  facts: readonly {
+    readonly id: string;
+    readonly type: string;
+    readonly entityName: string;
+    readonly value: Prisma.JsonValue;
+    readonly confidence: number;
+    readonly timelineHint: string | null;
+  }[],
+  options: { readonly preferCharacterNames?: boolean } = {}
+): readonly {
+  readonly name: string;
+  readonly aliases: readonly string[];
+  readonly facts: typeof facts;
+}[] {
+  const canonicalByAlias = new Map<string, string>();
+  const groups = new Map<
+    string,
+    { name: string; aliases: Set<string>; facts: (typeof facts)[number][] }
+  >();
+
+  for (const fact of facts) {
+    const names = uniqueStrings([fact.entityName, ...pickStringArrayValue(fact, 'candidateNames')]);
+    const existingKey = names.map(normalizeEntityName).find((name) => canonicalByAlias.has(name));
+    const displayName = selectEntityDisplayName(names, options);
+    const key = existingKey
+      ? (canonicalByAlias.get(existingKey) ?? normalizeEntityName(fact.entityName))
+      : normalizeEntityName(displayName);
+    const group = groups.get(key) ?? {
+      name: displayName,
+      aliases: new Set<string>(),
+      facts: []
+    };
+    const betterDisplayName = selectEntityDisplayName([group.name, ...names], options);
+
+    if (betterDisplayName !== group.name) {
+      group.aliases.add(group.name);
+      group.name = betterDisplayName;
+    }
+
+    group.facts.push(fact);
+    for (const name of names) {
+      const normalized = normalizeEntityName(name);
+
+      canonicalByAlias.set(normalized, key);
+      if (normalized !== normalizeEntityName(group.name)) {
+        group.aliases.add(name);
+      }
+    }
+    groups.set(key, group);
+  }
+
+  return [...groups.values()].map((group) => ({
+    name: group.name,
+    aliases: [...group.aliases],
+    facts: group.facts
+  }));
+}
+
+function selectEntityDisplayName(
+  names: readonly string[],
+  options: { readonly preferCharacterNames?: boolean }
+): string {
+  if (names.length === 0) {
+    return 'Unknown';
+  }
+
+  if (!options.preferCharacterNames) {
+    return names[0] ?? 'Unknown';
+  }
+
+  return (
+    [...names].sort((left, right) => characterNameScore(right) - characterNameScore(left))[0] ??
+    names[0] ??
+    'Unknown'
+  );
+}
+
+function characterNameScore(name: string): number {
+  const normalized = normalizeEntityName(name);
+  let score = 0;
+
+  if (!GENERIC_CHARACTER_LABELS.has(normalized)) {
+    score += 10;
+  }
+
+  if (/\p{Lu}/u.test(name)) {
+    score += 3;
+  }
+
+  if (/\s/.test(name.trim())) {
+    score += 2;
+  }
+
+  if (name.trim().length > 2) {
+    score += 1;
+  }
+
+  return score;
+}
+
+const GENERIC_CHARACTER_LABELS = new Set([
+  'boy',
+  'child',
+  'children',
+  'crowd',
+  'daughter',
+  'father',
+  'girl',
+  'guard',
+  'guards',
+  'hero',
+  'man',
+  'men',
+  'mother',
+  'old man',
+  'old woman',
+  'people',
+  'person',
+  'soldier',
+  'soldiers',
+  'son',
+  'stranger',
+  'woman',
+  'women',
+  'герой',
+  'героиня',
+  'девочка',
+  'девушка',
+  'дети',
+  'женщина',
+  'люди',
+  'мальчик',
+  'мать',
+  'мужчина',
+  'незнакомец',
+  'незнакомка',
+  'отец',
+  'ребенок',
+  'ребёнок',
+  'солдат',
+  'солдаты',
+  'старик',
+  'старуха',
+  'страж',
+  'стражи',
+  'сын',
+  'толпа',
+  'человек'
+]);
+
+function pickSummary(
+  facts: readonly { readonly type: string; readonly value: Prisma.JsonValue }[],
+  types: readonly string[]
+): string | undefined {
+  return facts
+    .filter((fact) => types.includes(fact.type))
+    .map((fact) => getString(toJsonRecord(fact.value)?.summary))
+    .find((value): value is string => value !== undefined);
+}
+
+function pickStringValue(
+  facts: readonly { readonly value: Prisma.JsonValue }[],
+  key: string
+): string | undefined {
+  return facts
+    .map((fact) => getString(toJsonRecord(fact.value)?.[key]))
+    .find((value): value is string => value !== undefined);
+}
+
+function pickStringArrayValue(fact: { readonly value: Prisma.JsonValue }, key: string): string[] {
+  return getStringArray(toJsonRecord(fact.value)?.[key]);
+}
+
+function averageConfidence(facts: readonly { readonly confidence: number }[]): number {
+  if (facts.length === 0) {
+    return 0;
+  }
+
+  return facts.reduce((sum, fact) => sum + fact.confidence, 0) / facts.length;
+}
+
+function buildObjectVisualPrompt(
+  name: string,
+  appearance: string | undefined,
+  description: string
+): string {
+  return uniqueStrings([name, appearance, description]).join('. ');
+}
+
 async function readGeneratedImageBytes(image: {
   readonly b64Json?: string;
   readonly url?: string;
@@ -664,16 +1191,61 @@ function getNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-function getStringArray(value: unknown): readonly string[] {
+function getStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string' && item.length > 0)
     : [];
+}
+
+function uniqueStrings(values: readonly (string | null | undefined)[]): string[] {
+  return [
+    ...new Set(
+      values
+        .filter((value): value is string => typeof value === 'string')
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0)
+    )
+  ];
+}
+
+function normalizeEntityName(value: string): string {
+  return value.trim().toLocaleLowerCase();
 }
 
 function toJsonObject(input: Record<string, unknown>): Prisma.InputJsonObject {
   return Object.fromEntries(
     Object.entries(input).filter(([, value]) => value !== undefined)
   ) as Prisma.InputJsonObject;
+}
+
+function toInputJsonObject(input: Record<string, unknown>): Prisma.InputJsonObject {
+  return Object.fromEntries(
+    Object.entries(input).filter((entry): entry is [string, Prisma.InputJsonValue] =>
+      isInputJsonValue(entry[1])
+    )
+  );
+}
+
+function isInputJsonValue(value: unknown): value is Prisma.InputJsonValue {
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return true;
+  }
+
+  if (Array.isArray(value)) {
+    return value.every(isInputJsonValue);
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.values(value).every(isInputJsonValue);
+  }
+
+  return false;
+}
+
+function toJsonRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 async function readStream(streamPromise: Promise<Readable>): Promise<Buffer> {
@@ -738,6 +1310,8 @@ async function createTrackedJob(input: {
     select: { id: true }
   });
 
+  await pruneAnalysisJobHistory(input.prisma, generationJob.id, input.queueName);
+
   await input.queue.add(
     input.name,
     {
@@ -760,6 +1334,43 @@ async function createTrackedJob(input: {
   );
 
   return generationJob;
+}
+
+async function pruneAnalysisJobHistory(
+  prisma: PrismaService,
+  currentJobId: string,
+  queueName: QueueName
+): Promise<void> {
+  if (queueName !== 'book-analysis' && queueName !== 'chunk-extraction') {
+    return;
+  }
+
+  const currentJob = await prisma.generationJob.findUnique({
+    where: { id: currentJobId },
+    select: { id: true, bookAnalysisId: true }
+  });
+
+  if (!currentJob?.bookAnalysisId) {
+    return;
+  }
+
+  const jobs = await prisma.generationJob.findMany({
+    where: { bookAnalysisId: currentJob.bookAnalysisId },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, input: true }
+  });
+  const staleJobIds = jobs
+    .filter((job) => job.id !== currentJob.id)
+    .filter((job) => getString(toJsonRecord(job.input)?.queueName) === queueName)
+    .map((job) => job.id);
+
+  if (staleJobIds.length === 0) {
+    return;
+  }
+
+  await prisma.generationJob.deleteMany({
+    where: { id: { in: staleJobIds } }
+  });
 }
 
 async function resolveProjectUserId(
@@ -836,7 +1447,12 @@ async function findProjectWorldBible(
     }
   });
 
-  return project?.series?.worldBible ?? project?.worldBible ?? project?.bookAnalysis?.worldBible ?? undefined;
+  return (
+    project?.series?.worldBible ??
+    project?.worldBible ??
+    project?.bookAnalysis?.worldBible ??
+    undefined
+  );
 }
 
 async function getBookAnalysisMetadata(
@@ -879,6 +1495,23 @@ function mergeMetadata(
     ...toRecord(current),
     ...toJsonObject(patch)
   };
+}
+
+function mergeSuccessfulMetadata(
+  current: Prisma.JsonValue | null,
+  patch: Record<string, unknown>
+): Prisma.InputJsonObject {
+  const metadata = mergeMetadata(current, patch);
+  delete (metadata as Record<string, unknown>).error;
+
+  return metadata;
+}
+
+function clearMetadataError(current: Prisma.JsonValue | null): Prisma.InputJsonObject {
+  const metadata = { ...toRecord(current) };
+  delete metadata.error;
+
+  return metadata;
 }
 
 function toRecord(value: Prisma.JsonValue | null): Record<string, Prisma.InputJsonValue> {

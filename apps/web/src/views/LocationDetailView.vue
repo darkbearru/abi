@@ -1,21 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed } from 'vue';
 
 import PageHeader from '../components/PageHeader.vue';
 import ResourceState from '../components/ResourceState.vue';
-import { useProjectsStore } from '../stores/projects';
+import { useActiveProjectEffect } from '../composables/useActiveProjectEffect';
 import { useWorldBibleStore } from '../stores/worldBible';
 
 const props = defineProps<{ id: string }>();
-const projects = useProjectsStore();
 const world = useWorldBibleStore();
 const location = computed(() => world.locations.find((item) => item.id === props.id) ?? null);
 
-onMounted(() => {
-  if (projects.activeProjectId && world.locations.length === 0) {
-    void world.loadProjectWorld(projects.activeProjectId);
-  }
-});
+useActiveProjectEffect((projectId) => world.loadProjectWorld(projectId));
 </script>
 
 <template>

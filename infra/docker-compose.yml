@@ -13,6 +13,7 @@ x-app-env: &app-env
   BOOK_UPLOAD_TEMP_ROOT: ${BOOK_UPLOAD_TEMP_ROOT:-/app/storage/.tmp/uploads}
   BOOK_CHUNK_TARGET_TOKENS: ${BOOK_CHUNK_TARGET_TOKENS:-1800}
   BOOK_CHUNK_OVERLAP_TOKENS: ${BOOK_CHUNK_OVERLAP_TOKENS:-200}
+  AI_TEXT_TIMEOUT_MS: ${AI_TEXT_TIMEOUT_MS:-120000}
   CHARACTER_EXTRACTION_AI_PROVIDER: ${CHARACTER_EXTRACTION_AI_PROVIDER:-openai}
   CHARACTER_EXTRACTION_PROMPT_VERSION: ${CHARACTER_EXTRACTION_PROMPT_VERSION:-1.0.0}
   CHARACTER_PASSPORT_IMAGE_PROVIDER: ${CHARACTER_PASSPORT_IMAGE_PROVIDER:-openai}
@@ -42,7 +43,6 @@ x-app-env: &app-env
   NEO4J_USERNAME: ${NEO4J_USERNAME:-neo4j}
   NEO4J_PASSWORD: ${NEO4J_PASSWORD:-please-change-me}
   STORAGE_ROOT: ${STORAGE_ROOT:-/app/storage}
-  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
   MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
   MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -102,7 +102,6 @@ services:
 
   neo4j:
     image: neo4j:${NEO4J_VERSION:-5-community}
-    env_file: *env-file
     environment:
       NEO4J_AUTH: ${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:-please-change-me}
     ports:
@@ -201,11 +200,11 @@ services:
       context: ..
       dockerfile: infra/docker/web.Dockerfile
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
+        VITE_API_BASE_URL: ${WEB_DOCKER_API_BASE_URL:-/backend}
     env_file: *env-file
     environment:
       NODE_ENV: ${NODE_ENV:-development}
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
+      VITE_API_BASE_URL: ${WEB_DOCKER_API_BASE_URL:-/backend}
     ports:
       - "${WEB_PORT:-5173}:80"
     depends_on:

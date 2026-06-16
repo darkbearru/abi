@@ -12,7 +12,8 @@ import {
 } from './location-extraction.config.js';
 import {
   LocationExtractionResponseSchema,
-  type ExtractedLocationFact
+  type ExtractedLocationFact,
+  type LocationExtractionResponse
 } from './location-extraction.schema.js';
 import type {
   LocationExtractionJobInput,
@@ -68,7 +69,7 @@ export class LocationExtractionService {
       },
       this.config.promptVersion
     );
-    const extracted = await this.aiProviders.extractStructuredData(
+    const extracted = await this.aiProviders.extractStructuredData<LocationExtractionResponse>(
       this.config.providerId,
       {
         prompt,
@@ -81,7 +82,7 @@ export class LocationExtractionService {
         }
       }
     );
-    const facts = (extracted.facts ?? []).map((fact) =>
+    const facts = extracted.facts.map((fact) =>
       this.toCreateInput(input, chunk, fact)
     );
 

@@ -16,6 +16,7 @@ import { ConsistencyValidationModule } from './modules/consistency-validation/co
 import { KnowledgeGraphModule } from './modules/knowledge-graph/knowledge-graph.module.js';
 import { LocationMergeModule } from './modules/location-merge/location-merge.module.js';
 import { LocationVisualPassportModule } from './modules/location-visual-passport/location-visual-passport.module.js';
+import { ObjectMergeModule } from './modules/object-merge/object-merge.module.js';
 import { ProjectsModule } from './modules/projects/projects.module.js';
 import { SceneGenerationModule } from './modules/scene-generation/scene-generation.module.js';
 import { TimelineMergeModule } from './modules/timeline-merge/timeline-merge.module.js';
@@ -37,7 +38,7 @@ import { QueueModule } from './modules/queue/queue.module.js';
     ),
     PromptsModule,
     StorageModule.register({
-      rootDir: process.env.LOCAL_STORAGE_PATH ?? process.env.STORAGE_ROOT ?? './storage'
+      rootDir: process.env.STORAGE_ROOT ?? './storage'
     }),
     ValidationModule,
     PrismaModule,
@@ -52,6 +53,7 @@ import { QueueModule } from './modules/queue/queue.module.js';
     ConsistencyValidationModule,
     LocationMergeModule,
     LocationVisualPassportModule,
+    ObjectMergeModule,
     TimelineMergeModule,
     KnowledgeGraphModule,
     VectorSearchModule,

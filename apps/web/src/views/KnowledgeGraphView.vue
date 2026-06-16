@@ -1,22 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed } from 'vue';
 
 import PageHeader from '../components/PageHeader.vue';
 import ResourceState from '../components/ResourceState.vue';
 import StatCard from '../components/StatCard.vue';
-import { useProjectsStore } from '../stores/projects';
+import { useActiveProjectEffect } from '../composables/useActiveProjectEffect';
 import { useWorldBibleStore } from '../stores/worldBible';
 
-const projects = useProjectsStore();
 const world = useWorldBibleStore();
 
 const graph = computed(() => world.graph);
 
-onMounted(async () => {
-  if (projects.activeProjectId) {
-    await world.loadGraph(projects.activeProjectId);
-  }
-});
+useActiveProjectEffect((projectId) => world.loadGraph(projectId));
 </script>
 
 <template>

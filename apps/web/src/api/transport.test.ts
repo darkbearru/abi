@@ -10,6 +10,26 @@ describe('ApiTransport', () => {
     vi.unstubAllGlobals();
   });
 
+  it('binds the default fetcher to globalThis for Firefox compatibility', async () => {
+    const originalFetch = globalThis.fetch;
+    const fetcher = vi.fn(function (this: typeof globalThis) {
+      if (this !== globalThis) {
+        throw new TypeError('Illegal invocation');
+      }
+
+      return Promise.resolve(jsonResponse({ ok: true }));
+    });
+
+    vi.stubGlobal('fetch', fetcher);
+
+    const transport = new ApiTransport({ baseUrl: 'http://api.test', retryDelayMs: 0 });
+
+    await expect(transport.request('/healthz')).resolves.toEqual({ ok: true });
+    expect(fetcher).toHaveBeenCalledOnce();
+
+    vi.stubGlobal('fetch', originalFetch);
+  });
+
   it('adds placeholder auth token when provider returns one', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ ok: true }));
     const tokenProvider: AuthTokenProvider = {
